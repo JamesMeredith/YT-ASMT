@@ -1,0 +1,45 @@
+[DB] 已从磁盘加载
+[MIGRATE] CREATE TABLE IF NOT EXISTS knowledge_references (
+    id INT
+[MIGRATE] CREATE INDEX IF NOT EXISTS idx_kbref_knowledge ON knowledge_
+[MIGRATE] CREATE INDEX IF NOT EXISTS idx_kbref_fault ON knowledge_refe
+[MIGRATE] CREATE TABLE IF NOT EXISTS pre_sales_node_defs (
+    id INTE
+[MIGRATE] CREATE TABLE IF NOT EXISTS pre_sales_projects (
+    id INTEG
+[MIGRATE] CREATE TABLE IF NOT EXISTS pre_sales_node_progress (
+    id 
+[MIGRATE] CREATE TABLE IF NOT EXISTS pre_sales_work_items (
+    id INT
+[MIGRATE] CREATE TABLE IF NOT EXISTS pre_sales_materials (
+    id INTE
+[MIGRATE] CREATE TABLE IF NOT EXISTS pre_sales_issues (
+    id INTEGER
+[MIGRATE] CREATE INDEX IF NOT EXISTS idx_psp_engineer ON pre_sales_pro
+[MIGRATE] CREATE INDEX IF NOT EXISTS idx_psp_status ON pre_sales_proje
+[MIGRATE] CREATE INDEX IF NOT EXISTS idx_psnp_project ON pre_sales_nod
+[MIGRATE] CREATE INDEX IF NOT EXISTS idx_pswi_node ON pre_sales_work_i
+[MIGRATE] CREATE INDEX IF NOT EXISTS idx_psi_project ON pre_sales_issu
+[MIGRATE] CREATE INDEX IF NOT EXISTS idx_hospital_supplier ON hospital
+[MIGRATE] CREATE INDEX IF NOT EXISTS idx_hospital_engineer ON hospital
+[MIGRATE] 已为医院补填供应商归属
+[DB] 数据库初始化完成
+
+[服务器] 麻精药品智能柜售后运维工具已启动
+[服务器] 访问地址: http://localhost:3000
+[服务器] 数据目录: E:\YT-ASMT\data
+
+默认账号:
+  省代: dealer01 / 123456
+  市代(广州): dealer02 / 123456
+  市代(深圳): dealer03 / 123456
+  工程师(广州): engineer01 / 123456
+  工程师(深圳): engineer02 / 123456
+  总部: admin01 / 123456
+[CREATE PROJECT] mode=existing hospital_id=2 engineer_id=6 user=admin01
+[CREATE PROJECT] engineer found: 张三
+[CREATE PROJECT] looking up hospital id=2
+[CREATE PROJECT] hospital found: 深圳市人民医院
+[CREATE PROJECT] hospital.engineer_id=6 hospital.supplier_id=3
+[CREATE PROJECT] checking device_code: UNIQ-001
+[CREATE PROJECT] device uniqueness check done, dup=none

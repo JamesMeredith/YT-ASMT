@@ -1,0 +1,37 @@
+=== pre_sales_projects columns ===
+  id INTEGER notnull=0
+  project_no VARCHAR(32) notnull=1
+  hospital_id INTEGER notnull=1
+  device_code VARCHAR(32) notnull=0
+  device_type VARCHAR(10) notnull=0
+  engineer_id INTEGER notnull=1
+  hospital_name VARCHAR(128) notnull=0
+  province VARCHAR(32) notnull=0
+  city VARCHAR(32) notnull=0
+  region VARCHAR(32) notnull=0
+  status VARCHAR(16) notnull=0
+  completion_percent INTEGER notnull=0
+  current_node_index INTEGER notnull=0
+  acceptance_passed TINYINT notnull=0
+  accepted_at DATETIME notnull=0
+  install_location VARCHAR(256) notnull=0
+  install_ip VARCHAR(45) notnull=0
+  install_device_info TEXT notnull=0
+  created_at DATETIME notnull=0
+  updated_at DATETIME notnull=0
+
+=== Projects ===
+  XS_260522_001 | PS-TEST-001 | 进行中
+  XS_260523_001 | PS-TEST-001 | 进行中
+  XS_260525_001 | null | 进行中
+  XS_260526_001 | PS-TEST-DUAL | 进行中
+
+=== Node defs ===
+  #1 到场前-基础对接准备
+  #2 到场前-系统对接准备
+  #3 到场后-开箱验收
+  #4 到场后-设备安装部署
+  #5 到场后-接口联调
+  #6 到场后-系统调试配置
+  #7 到场后-操作培训交付
+  #8 到场后-最终验收

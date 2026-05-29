@@ -1,0 +1,1230 @@
+/**
+ * 楹荤簿鑽搧鏅鸿兘鏌滃敭鍚庤繍缁村伐鍏?- 涓绘湇鍔″櫒
+ * 鍩轰簬 Express + SQLite锛屾敮鎸佺绾夸紭鍏堟灦鏋? */
+const express = require('express');
+const session = require('express-session');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const { v4: uuidv4 } = require('uuid');
+const { initDb, getDbSync, saveDb } = require('./db');
+const { authMiddleware, login, logout, changePassword, getCurrentUser, requireHeadquarters, requireAgentOrAbove, logAudit } = require('./auth');
+const regionFilter = require('./middleware/region-filter');
+const usersRouter = require('./apis/users');
+const partsRouter = require('./apis/parts');
+const preSalesRouter = require('./apis/pre_sales');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// 鏁版嵁鐩綍
+const DATA_DIR = path.join(__dirname, '..', 'data');
+const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+// 涓棿浠?app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// 闈欐€佹枃浠?app.use(express.static(path.join(__dirname, '..', 'web')));
+
+// 璁よ瘉涓棿浠?app.use('/api', authMiddleware);
+
+// 涓婁紶閰嶇疆
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const subDir = req.body.node_type || 'general';
+    const targetDir = path.join(UPLOAD_DIR, subDir);
+    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+    cb(null, targetDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const ts = Date.now();
+    cb(null, `${ts}_${uuidv4().slice(0, 8)}${ext}`);
+  }
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.jpg', '.jpeg', '.png', '.pdf', '.xlsx', '.xls'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(ext)) return cb(null, true);
+    cb(new Error('涓嶆敮鎸佺殑鏂囦欢绫诲瀷'));
+  }
+});
+
+// ======================= 璁よ瘉鎺ュ彛 =======================
+app.post('/api/auth/login', (req, res) => login(req, res));
+app.post('/api/auth/logout', (req, res) => logout(req, res));
+app.post('/api/auth/change-password', (req, res) => changePassword(req, res));
+app.get('/api/auth/me', (req, res) => getCurrentUser(req, res));
+
+// ======================= 鐢ㄦ埛绠＄悊锛堟€婚儴锛?=======================
+app.use('/api/users', usersRouter);
+
+// ======================= 閰嶄欢绠＄悊 =======================
+app.use('/api/parts', partsRouter);
+// ======================= 璁惧鍨嬪彿绠＄悊锛圚Q锛?=======================
+const deviceModelsRouter = require('./apis/device_models');
+app.use('/api/device-models', deviceModelsRouter);
+// 鍞腑妯″潡-鏂囦欢涓婁紶锛坢ulter闇€鍦╮outer鍓嶆敞鍐岋紝纭繚multer涓棿浠跺厛鎵ц锛?app.post('/api/pre-sales/nodes/:nodeId/upload', upload.array('files', 10), (req, res) => {
+  try {
+    const { files } = req;
+    if (!files || files.length === 0) return res.status(400).json({ error: '未上传文件' });
+    const db = getDbSync();
+    const nodeId = parseInt(req.params.nodeId);
+    const nd = db.prepare('SELECT * FROM pre_sales_node_progress WHERE id=?').get(nodeId);
+    if (!nd) return res.status(404).json({ error: '鑺傜偣涓嶅瓨鍦? });
+    const results = [];
+    for (const f of files) {
+      const relativePath = f.path.replace(/\\/g, '/').replace(/.*\/uploads\//, '');
+      db.prepare('INSERT INTO pre_sales_materials (node_progress_id,file_name,file_path,file_type) VALUES (?,?,?,?)')
+        .run(nodeId, f.originalname, relativePath, f.mimetype);
+      results.push({ file_name: f.originalname, file_path: relativePath });
+    }
+    db.prepare('UPDATE pre_sales_node_progress SET materials_uploaded=1,updated_at=datetime("now","localtime") WHERE id=?').run(nodeId);
+    res.json({ message: `宸蹭笂浼?{files.length}涓枃浠禶, files: results });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.use('/api/pre-sales', preSalesRouter);
+
+// ======================= 宸ヤ綔鍙扮粺璁?=======================
+app.get('/api/dashboard', (req, res) => {
+  const db = getDbSync();
+  const user = req.user;
+  const filter = regionFilter.buildRegionFilter(user, 'h');
+
+  // 鏁呴殰缁熻锛堟寜澶у尯/鐪佷唤/鍩庡競杩囨护锛?  const faultStats = db.prepare(`
+    SELECT 
+      COUNT(*) as total,
+      SUM(CASE WHEN status = '寰呭鐞? THEN 1 ELSE 0 END) as pending,
+      SUM(CASE WHEN status = '澶勭悊涓? THEN 1 ELSE 0 END) as processing,
+      SUM(CASE WHEN status = '寰呭鏍? THEN 1 ELSE 0 END) as review,
+      SUM(CASE WHEN status = '宸查棴鐜? THEN 1 ELSE 0 END) as closed,
+      SUM(CASE WHEN fault_level = '閲嶅ぇ' AND status != '宸查棴鐜? THEN 1 ELSE 0 END) as major_pending,
+      SUM(CASE WHEN fault_level = '绱ф€? AND status != '宸查棴鐜? THEN 1 ELSE 0 END) as urgent_pending
+    FROM fault_orders f
+    LEFT JOIN hospitals h ON f.hospital_id = h.id
+    WHERE 1=1 ${filter.sql}
+  `).get(...filter.params);
+
+  // 璁惧缁熻锛堟寜澶у尯/鐪佷唤/鍩庡競杩囨护锛?  const deviceStats = db.prepare(`
+    SELECT 
+      COUNT(*) as total,
+      SUM(CASE WHEN d.status = '鍦ㄧ嚎' THEN 1 ELSE 0 END) as online,
+      SUM(CASE WHEN d.status = '绂荤嚎' THEN 1 ELSE 0 END) as offline,
+      SUM(CASE WHEN d.status = '缁翠慨涓? THEN 1 ELSE 0 END) as maintenance,
+      SUM(CASE WHEN d.status = '宸叉姤搴? THEN 1 ELSE 0 END) as scrapped
+    FROM devices d
+    LEFT JOIN hospitals h ON d.hospital_id = h.id
+    WHERE 1=1 ${filter.sql}
+  `).get(...filter.params);
+
+  // 寰呭贰妫€锛堟湰浜烘垨涓嬬骇鑼冨洿锛?  let inspFilter = '';
+  let inspParams = [];
+  if (user.role === 'provincial_agent' || user.role === 'city_agent') {
+    // 浠ｇ悊浜虹湅涓嬪睘宸ョ▼甯堢殑宸℃
+    const visFilter = regionFilter.buildUserVisibilityFilter(user, db);
+    inspFilter = visFilter.sql.replace(/u\.id/g, 'ip.responsible_engineer_id').replace(/^ AND /, ' AND ');
+    inspParams = visFilter.params;
+  } else if (user.role === 'engineer') {
+    inspFilter = ' AND ip.responsible_engineer_id = ?';
+    inspParams = [user.id];
+  }
+  const pendingInspection = db.prepare(`
+    SELECT COUNT(*) as cnt FROM inspection_plans ip
+    WHERE ip.next_inspection_date <= date('now','localtime','+3 days')
+    AND ip.status = '杩涜涓? ${inspFilter}
+  `).get(...inspParams).cnt;
+
+  // 寰呭洖璁匡紙鎸夊湴鍖鸿繃婊わ級
+  const pendingFeedback = db.prepare(`
+    SELECT COUNT(*) as cnt FROM fault_orders f
+    LEFT JOIN hospitals h ON f.hospital_id = h.id
+    WHERE f.closed_at >= datetime('now','localtime','-7 days')
+    AND f.feedback_completed = 0 AND 1=1 ${filter.sql}
+  `).get(...filter.params).cnt;
+
+  // 鏈娑堟伅
+  const unreadNotify = db.prepare('SELECT COUNT(*) as cnt FROM notifications WHERE target_user_id = ? AND is_read = 0').get(user.id).cnt;
+
+  // 杩?鏃ユ晠闅滆秼鍔匡紙鎸夊湴鍖鸿繃婊わ級
+  const recentFaults = db.prepare(`
+    SELECT date(f.created_at) as date, COUNT(*) as cnt
+    FROM fault_orders f
+    LEFT JOIN hospitals h ON f.hospital_id = h.id
+    WHERE f.created_at >= datetime('now','localtime','-7 days') AND 1=1 ${filter.sql}
+    GROUP BY date(f.created_at)
+    ORDER BY date ASC
+  `).all(...filter.params);
+
+  res.json({
+    fault: faultStats,
+    device: deviceStats,
+    pending_inspection: pendingInspection,
+    pending_feedback: pendingFeedback,
+    unread_notifications: unreadNotify,
+    recent_faults: recentFaults
+  });
+});
+
+// ======================= 鏁呴殰宸ュ崟鎺ュ彛 =======================
+
+// 宸ュ崟鍒楄〃
+app.get('/api/faults', (req, res) => {
+  const db = getDbSync();
+  const { status, level, keyword, region, province, city, page = 1, page_size = 20 } = req.query;
+  const user = req.user;
+  const offset = (parseInt(page) - 1) * parseInt(page_size);
+
+  let where = [];
+  let params = [];
+
+  // 鍦板尯灞傜骇杩囨护锛堢渷浠?甯備唬鎸夊湴鍩燂級+ 渚涘簲鍟嗘妧鏈汉鍛樻寜宸ュ崟褰掑睘杩囨护
+  const regionF = regionFilter.buildRegionFilter(user, 'h');
+  const accessF = regionFilter.buildFaultAccessFilter(user, 'f', db);
+
+  if (status) { where.push('f.status = ?'); params.push(status); }
+  if (level) { where.push('f.fault_level = ?'); params.push(level); }
+  if (keyword) { where.push('(f.fault_no LIKE ? OR f.description LIKE ? OR h.hospital_name LIKE ?)'); params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`); }
+  // 鍏佽鎸囧畾棰濆杩囨护
+  if (region) { where.push('h.region = ?'); params.push(region); }
+  if (province) { where.push('h.province = ?'); params.push(province); }
+  if (city) { where.push('h.city = ?'); params.push(city); }
+
+  const finalWhere = where.length > 0
+    ? `WHERE 1=1${regionF.sql}${accessF.sql} AND ${where.join(' AND ')}`
+    : `WHERE 1=1${regionF.sql}${accessF.sql}`;
+  const allParams = [...regionF.params, ...accessF.params, ...params];
+
+  const total = db.prepare(`SELECT COUNT(*) as cnt FROM fault_orders f LEFT JOIN hospitals h ON f.hospital_id = h.id ${finalWhere}`).get(...allParams).cnt;
+  const rows = db.prepare(`
+    SELECT f.*, h.hospital_name, h.region as hospital_region, u.real_name as engineer_name,
+           d.device_type, d.install_location
+    FROM fault_orders f
+    LEFT JOIN hospitals h ON f.hospital_id = h.id
+    LEFT JOIN users u ON f.engineer_id = u.id
+    LEFT JOIN devices d ON f.device_code = d.device_code
+    ${finalWhere}
+    ORDER BY f.created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(...allParams, parseInt(page_size), offset);
+
+  res.json({ total, page: parseInt(page), page_size: parseInt(page_size), data: rows });
+});
+
+// 鏁呴殰璇︽儏
+app.get('/api/faults/:fault_no', (req, res) => {
+  const db = getDbSync();
+  const { fault_no } = req.params;
+
+  const fault = db.prepare(`
+    SELECT f.*, h.hospital_name, h.address as hospital_address, h.contact_person, h.contact_phone,
+           u.real_name as engineer_name, u.phone as engineer_phone,
+           r.real_name as reviewer_name
+    FROM fault_orders f
+    LEFT JOIN hospitals h ON f.hospital_id = h.id
+    LEFT JOIN users u ON f.engineer_id = u.id
+    LEFT JOIN users r ON f.reviewer_id = r.id
+    WHERE f.fault_no = ?
+  `).get(fault_no);
+
+  if (!fault) return res.status(404).json({ error: '宸ュ崟涓嶅瓨鍦? });
+
+  const logs = db.prepare('SELECT * FROM fault_flow_logs WHERE fault_no = ? ORDER BY created_at ASC').all(fault_no);
+  const attachments = db.prepare('SELECT * FROM fault_attachments WHERE fault_no = ?').all(fault_no);
+
+  res.json({ ...fault, logs, attachments });
+});
+
+// 鏂板缓鏁呴殰宸ュ崟锛堟姤淇櫥璁帮級
+app.post('/api/faults', (req, res) => {
+  const db = getDbSync();
+  const user = req.user;
+  const {
+    device_code, fault_category_l1, fault_category_l2, description,
+    contact_person, contact_phone
+  } = req.body;
+
+  if (!device_code || !fault_category_l1 || !description || !contact_person || !contact_phone) {
+    return res.status(400).json({ error: '蹇呭～瀛楁涓嶈兘涓虹┖' });
+  }
+  if (description.length < 10) return res.status(400).json({ error: '鏁呴殰鎻忚堪鑷冲皯10涓瓧' });
+
+  // 鏍￠獙璁惧鏄惁瀛樺湪
+  const device = db.prepare('SELECT * FROM devices WHERE device_code = ?').get(device_code);
+  if (!device) return res.status(400).json({ error: '璁惧鏈敞鍐岋紝璇峰厛缁戝畾璁惧' });
+
+  // 鑷姩鍒嗙骇
+  const autoLevel = (cat1, cat2, desc) => {
+    const d = (desc || '') + (cat2 || '');
+    if (/閿佹|鏃犳硶寮€鏌渱鑽搧涓㈠け|鏁伴噺涓嶇|鐗╃悊鐮村潖|鏌滀綋/.test(d)) return '閲嶅ぇ';
+    if (/缃戠粶|閫氫俊|鎵爜|娓╂箍搴鎶ヨ/.test(d)) return '绱ф€?;
+    return '涓€鑸?;
+  };
+
+  const fault_level = autoLevel(fault_category_l1, fault_category_l2, description);
+
+  // 鐢熸垚鍗曞彿
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const seqRow = db.prepare('SELECT COUNT(*) as cnt FROM fault_orders WHERE fault_no LIKE ?').get(`FW_${device_code.slice(-6)}_${today}%`);
+  const seq = String(seqRow.cnt + 1).padStart(4, '0');
+  const fault_no = `FW_${device_code.slice(-6)}_${today}_${seq}`;
+
+  db.prepare(`
+    INSERT INTO fault_orders
+    (fault_no, device_code, fault_level, fault_category_l1, fault_category_l2,
+     description, status, contact_person, contact_phone, engineer_id, hospital_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+  `).run(fault_no, device_code, fault_level, fault_category_l1, fault_category_l2 || '',
+    description, '寰呭鐞?, contact_person, contact_phone, user.id, device.hospital_id);
+
+  // 娴佺▼鏃ュ織
+  db.prepare('INSERT INTO fault_flow_logs (fault_no,node_name,operator_id,operator_name,action) VALUES (?,?,?,?,?)')
+    .run(fault_no, '鎶ヤ慨鐧昏', user.id, user.real_name, '鍒涘缓鏁呴殰宸ュ崟');
+
+  // 瀹¤鏃ュ織
+  db.prepare('INSERT INTO audit_logs (user_id,username,role,action_type,target_type,target_id,new_value,ip_address) VALUES (?,?,?,?,?,?,?,?)')
+    .run(user.id, user.username, user.role, '鍒涘缓宸ュ崟', 'fault_order', fault_no, JSON.stringify({ fault_level, fault_category_l1 }), req.ip);
+
+  // 鍛婅閫氱煡
+  if (fault_level === '閲嶅ぇ') {
+    const admins = db.prepare("SELECT id FROM users WHERE role = 'headquarters'").all();
+    for (const admin of admins) {
+      db.prepare('INSERT INTO notifications (target_user_id,fault_no,title,content,category,level) VALUES (?,?,?,?,?,?)')
+        .run(admin.id, fault_no, `銆愰噸澶ф晠闅溿€?{fault_no}`, `璁惧 ${device_code} 鍙戠敓閲嶅ぇ鏁呴殰锛岃绔嬪嵆澶勭悊`, '鏁呴殰鍛婅', 'urgent');
+    }
+  }
+
+  res.json({ success: true, fault_no, fault_level });
+});
+
+// 鐜板満鎺掓煡
+app.post('/api/faults/:fault_no/investigate', (req, res) => {
+  const db = getDbSync();
+  const { fault_no } = req.params;
+  const { investigation_result, root_cause, note } = req.body;
+
+  const fault = db.prepare('SELECT * FROM fault_orders WHERE fault_no = ?').get(fault_no);
+  if (!fault) return res.status(404).json({ error: '宸ュ崟涓嶅瓨鍦? });
+  if (fault.status !== '寰呭鐞?) return res.status(400).json({ error: '褰撳墠鐘舵€佷笉鍏佽姝ゆ搷浣? });
+
+  db.prepare('UPDATE fault_orders SET investigation_result=?,root_cause=?,investigation_time=datetime("now","localtime"),status=?,updated_at=datetime("now","localtime") WHERE fault_no=?')
+    .run(investigation_result || '', root_cause || '', '澶勭悊涓?, fault_no);
+
+  db.prepare('INSERT INTO fault_flow_logs (fault_no,node_name,operator_id,operator_name,action,detail) VALUES (?,?,?,?,?,?)')
+    .run(fault_no, '鐜板満鎺掓煡', req.user.id, req.user.real_name, '瀹屾垚鐜板満鎺掓煡', `鏍瑰洜: ${root_cause || ''}`);
+
+  db.prepare('INSERT INTO audit_logs (user_id,username,role,action_type,target_type,target_id,ip_address) VALUES (?,?,?,?,?,?,?)')
+    .run(req.user.id, req.user.username, req.user.role, '鐜板満鎺掓煡', 'fault_order', fault_no, req.ip);
+
+  res.json({ success: true });
+});
+
+// 鏁呴殰淇
+app.post('/api/faults/:fault_no/fix', (req, res) => {
+  const db = getDbSync();
+  const { fault_no } = req.params;
+  const { solution } = req.body;
+
+  if (!solution || solution.length < 20) return res.status(400).json({ error: '瑙ｅ喅鏂规鑷冲皯20涓瓧' });
+
+  const fault = db.prepare('SELECT * FROM fault_orders WHERE fault_no = ?').get(fault_no);
+  if (!fault) return res.status(404).json({ error: '宸ュ崟涓嶅瓨鍦? });
+  if (fault.status !== '澶勭悊涓?) return res.status(400).json({ error: '褰撳墠鐘舵€佷笉鍏佽姝ゆ搷浣? });
+
+  db.prepare('UPDATE fault_orders SET solution=?,fix_completed_time=datetime("now","localtime"),status=?,updated_at=datetime("now","localtime") WHERE fault_no=?')
+    .run(solution, '寰呭鏍?, fault_no);
+
+  db.prepare('INSERT INTO fault_flow_logs (fault_no,node_name,operator_id,operator_name,action,detail) VALUES (?,?,?,?,?,?)')
+    .run(fault_no, '鏁呴殰淇', req.user.id, req.user.real_name, '鎻愪氦淇鏂规', solution.slice(0, 50));
+
+  db.prepare('INSERT INTO audit_logs (user_id,username,role,action_type,target_type,target_id,ip_address) VALUES (?,?,?,?,?,?,?)')
+    .run(req.user.id, req.user.username, req.user.role, '鏁呴殰淇', 'fault_order', fault_no, req.ip);
+
+  res.json({ success: true });
+});
+
+// 澶嶆牳闂幆
+app.post('/api/faults/:fault_no/review', (req, res) => {
+  const db = getDbSync();
+  const { fault_no } = req.params;
+  const { review_result, review_note } = req.body;
+
+  const fault = db.prepare('SELECT * FROM fault_orders WHERE fault_no = ?').get(fault_no);
+  if (!fault) return res.status(404).json({ error: '宸ュ崟涓嶅瓨鍦? });
+  if (fault.status !== '寰呭鏍?) return res.status(400).json({ error: '褰撳墠鐘舵€佷笉鍏佽姝ゆ搷浣? });
+
+  if (review_result === '姝ｅ父') {
+    // 闂幆
+    db.prepare('UPDATE fault_orders SET review_result=?,review_note=?,reviewer_id=?,review_time=datetime("now","localtime"),status=?,resolved_at=datetime("now","localtime"),closed_by=?,updated_at=datetime("now","localtime") WHERE fault_no=?')
+      .run(review_result, review_note || '', req.user.id, '宸查棴鐜?, req.user.id, fault_no);
+
+    // 鏇存柊璁惧鐘舵€?    db.prepare('UPDATE devices SET status=? WHERE device_code=?').run('鍦ㄧ嚎', fault.device_code);
+
+    // 鐭ヨ瘑搴撳叆搴?    db.prepare('INSERT INTO knowledge_base (fault_category_l1,fault_category_l2,title,description_summary,solution,device_model,source_fault_no,author_id) VALUES (?,?,?,?,?,?,?,?)')
+      .run(fault.fault_category_l1, fault.fault_category_l2, fault.fault_no, fault.description.slice(0, 100), fault.solution || '', '', fault_no, req.user.id);
+
+    db.prepare('INSERT INTO fault_flow_logs (fault_no,node_name,operator_id,operator_name,action) VALUES (?,?,?,?,?)')
+      .run(fault_no, '澶嶆牳闂幆', req.user.id, req.user.real_name, '澶嶆牳閫氳繃锛岄棴鐜?);
+
+  } else {
+    // 鍥為€€
+    db.prepare('UPDATE fault_orders SET review_result=?,review_note=?,reviewer_id=?,review_time=datetime("now","localtime"),status=?,updated_at=datetime("now","localtime") WHERE fault_no=?')
+      .run(review_result, review_note || '', req.user.id, '澶勭悊涓?, fault_no);
+
+    db.prepare('INSERT INTO fault_flow_logs (fault_no,node_name,operator_id,operator_name,action,detail) VALUES (?,?,?,?,?,?)')
+      .run(fault_no, '澶嶆牳鍥為€€', req.user.id, req.user.real_name, '澶嶆牳寮傚父锛屽洖閫€鑷充慨澶嶇幆鑺?, review_note || '');
+  }
+
+  db.prepare('INSERT INTO audit_logs (user_id,username,role,action_type,target_type,target_id,ip_address) VALUES (?,?,?,?,?,?,?)')
+    .run(req.user.id, req.user.username, req.user.role, '澶嶆牳鎿嶄綔', 'fault_order', fault_no, req.ip);
+
+  res.json({ success: true });
+});
+
+// 鍞悗鍥炶
+app.post('/api/faults/:fault_no/feedback', (req, res) => {
+  const db = getDbSync();
+  const { fault_no } = req.params;
+  const { feedback_method, score_1, score_2, score_3, satisfaction, feedback_note } = req.body;
+
+  const fault = db.prepare('SELECT * FROM fault_orders WHERE fault_no = ?').get(fault_no);
+  if (!fault) return res.status(404).json({ error: '宸ュ崟涓嶅瓨鍦? });
+  if (fault.status !== '宸查棴鐜?) return res.status(400).json({ error: '宸ュ崟鏈棴鐜紝鏃犳硶鍥炶' });
+
+  db.prepare('UPDATE fault_orders SET feedback_method=?,feedback_score_1=?,feedback_score_2=?,feedback_score_3=?,feedback_satisfaction=?,feedback_note=?,feedback_time=datetime("now","localtime"),feedback_completed=1,updated_at=datetime("now","localtime") WHERE fault_no=?')
+    .run(feedback_method, score_1, score_2, score_3, satisfaction, feedback_note || '', fault_no);
+
+  db.prepare('INSERT INTO fault_flow_logs (fault_no,node_name,operator_id,operator_name,action) VALUES (?,?,?,?,?)')
+    .run(fault_no, '鍞悗鍥炶', req.user.id, req.user.real_name, `瀹屾垚鍥炶锛屾弧鎰忓害: ${satisfaction}`);
+
+  res.json({ success: true });
+});
+
+// 涓婁紶闄勪欢
+app.post('/api/faults/:fault_no/attachments', upload.array('files', 9), (req, res) => {
+  const db = getDbSync();
+  const { fault_no } = req.params;
+  const { node_type } = req.body;
+
+  const fault = db.prepare('SELECT * FROM fault_orders WHERE fault_no = ?').get(fault_no);
+  if (!fault) return res.status(404).json({ error: '宸ュ崟涓嶅瓨鍦? });
+
+  const results = [];
+  for (const file of req.files) {
+    const ext = path.extname(file.originalname).toLowerCase().replace('.', '');
+    const rec = db.prepare('INSERT INTO fault_attachments (fault_no,file_name,file_path,file_type,file_size,node_type) VALUES (?,?,?,?,?,?)')
+      .run(fault_no, file.originalname, file.path, ext, file.size, node_type || 'general');
+    results.push({ id: rec.lastInsertRowid, file_name: file.originalname, file_path: file.path, file_type: ext });
+  }
+
+  res.json({ success: true, files: results });
+});
+
+// ======================= 璁惧绠＄悊 =======================
+
+// 璁惧鍒楄〃
+app.get('/api/devices', (req, res) => {
+  const db = getDbSync();
+  const { keyword, status, page = 1, page_size = 20 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(page_size);
+  const user = req.user;
+
+  let where = [];
+  let params = [];
+
+  // 渚涘簲鍟嗘妧鏈汉鍛橈細鍙湅鑷繁璐熻矗鍖婚櫌鐨勮澶?  const accessFilter = regionFilter.buildHospitalAccessFilter(user, 'h', db);
+
+  if (status) { where.push('d.status = ?'); params.push(status); }
+  if (keyword) { where.push('(d.device_code LIKE ? OR d.serial_number LIKE ? OR h.hospital_name LIKE ?)'); params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`); }
+
+  const baseWhere = accessFilter.sql + (where.length ? ' AND ' + where.join(' AND ') : '');
+  const finalWhere = baseWhere ? `WHERE 1=1${baseWhere}` : '';
+  const allParams = [...accessFilter.params, ...params];
+
+  const total = db.prepare(`SELECT COUNT(*) as cnt FROM devices d LEFT JOIN hospitals h ON d.hospital_id = h.id ${finalWhere}`).get(...allParams).cnt;
+  const rows = db.prepare(`
+    SELECT d.*, h.hospital_name, h.province, h.city, u.real_name as engineer_name
+    FROM devices d
+    LEFT JOIN hospitals h ON d.hospital_id = h.id
+    LEFT JOIN users u ON h.engineer_id = u.id
+    ${finalWhere}
+    ORDER BY d.created_at DESC LIMIT ? OFFSET ?
+  `).all(...allParams, parseInt(page_size), offset);
+
+  res.json({ total, page: parseInt(page), page_size: parseInt(page_size), data: rows });
+});
+
+// 璁惧璇︽儏
+app.get('/api/devices/:device_code', (req, res) => {
+  const db = getDbSync();
+  const { device_code } = req.params;
+
+  const device = db.prepare(`
+    SELECT d.*, h.hospital_name, h.province, h.city, h.address, h.contact_person, h.contact_phone
+    FROM devices d LEFT JOIN hospitals h ON d.hospital_id = h.id
+    WHERE d.device_code = ?
+  `).get(device_code);
+
+  if (!device) return res.status(404).json({ error: '璁惧涓嶅瓨鍦? });
+
+  const faults = db.prepare('SELECT fault_no,fault_level,status,created_at FROM fault_orders WHERE device_code = ? ORDER BY created_at DESC LIMIT 10').all(device_code);
+  const inspections = db.prepare('SELECT * FROM inspection_records WHERE device_code = ? ORDER BY created_at DESC LIMIT 5').all(device_code);
+  const maintenance = db.prepare('SELECT * FROM maintenance_records WHERE device_code = ? ORDER BY created_at DESC LIMIT 10').all(device_code);
+
+  res.json({ ...device, faults, inspections, maintenance });
+});
+
+// 璁惧缁戝畾
+app.post('/api/devices', (req, res) => {
+  const db = getDbSync();
+  const user = req.user;
+  const {
+    device_code, device_type, serial_number, hospital_code, install_location,
+    wall_distance_cm, ip_address, install_date
+  } = req.body;
+
+  if (!device_code || !device_type || !hospital_code) {
+    return res.status(400).json({ error: '璁惧缂栫爜銆佽澶囩被鍨嬨€佸尰闄㈢紪鐮佷笉鑳戒负绌? });
+  }
+
+  // 鏌ラ噸
+  const existing = db.prepare('SELECT * FROM devices WHERE device_code = ?').get(device_code);
+  if (existing) return res.status(400).json({ error: `璇ョ紪鐮佸凡缁戝畾鑷?{existing.hospital_id}锛岀姝㈤噸澶嶇粦瀹歚 });
+
+  // 鏍￠獙鍖婚櫌
+  const hospital = db.prepare('SELECT * FROM hospitals WHERE hospital_code = ?').get(hospital_code);
+  if (!hospital) return res.status(400).json({ error: '鍖婚櫌缂栫爜涓嶅瓨鍦? });
+
+  // 绂诲璺濈鏍￠獙
+  const limit = db.prepare("SELECT value FROM system_config WHERE key='wall_distance_limit'").get();
+  if (wall_distance_cm && parseFloat(wall_distance_cm) > parseFloat(limit?.value || 10)) {
+    return res.status(400).json({ error: `绂诲璺濈${wall_distance_cm}cm瓒呰繃闄愬埗${limit?.value || 10}cm锛岀姝㈢粦瀹歚 });
+  }
+
+  db.prepare(`INSERT INTO devices (device_code,device_type,serial_number,hospital_id,install_location,wall_distance_cm,ip_address,install_date,status)
+    VALUES (?,?,?,?,?,?,?,?,?)`)
+    .run(device_code, device_type, serial_number || '', hospital.id, install_location || '', wall_distance_cm || null, ip_address || '', install_date || new Date().toISOString().slice(0, 10), '鍦ㄧ嚎');
+
+  db.prepare('INSERT INTO audit_logs (user_id,username,role,action_type,target_type,target_id,ip_address) VALUES (?,?,?,?,?,?,?)')
+    .run(user.id, user.username, user.role, '璁惧缁戝畾', 'device', device_code, req.ip);
+
+  res.json({ success: true, device_code });
+});
+
+// 璁惧鐘舵€佸彉鏇?app.patch('/api/devices/:device_code/status', (req, res) => {
+  const db = getDbSync();
+  const { device_code } = req.params;
+  const { status } = req.body;
+
+  const device = db.prepare('SELECT * FROM devices WHERE device_code = ?').get(device_code);
+  if (!device) return res.status(404).json({ error: '璁惧涓嶅瓨鍦? });
+
+  const valid = ['鍦ㄧ嚎', '绂荤嚎', '缁翠慨涓?, '宸叉姤搴?];
+  if (!valid.includes(status)) return res.status(400).json({ error: '鏃犳晥鐨勭姸鎬佸€? });
+
+  db.prepare('UPDATE devices SET status=?,updated_at=datetime("now","localtime") WHERE device_code=?')
+    .run(status, device_code);
+
+  db.prepare('INSERT INTO audit_logs (user_id,username,role,action_type,target_type,target_id,old_value,new_value,ip_address) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(req.user.id, req.user.username, req.user.role, '璁惧鐘舵€佸彉鏇?, 'device', device_code, device.status, status, req.ip);
+
+  res.json({ success: true });
+});
+
+// ======================= 闇€姹傜鐞?=======================
+
+// 闇€姹傚垪琛?app.get('/api/demands', (req, res) => {
+  const db = getDbSync();
+  const { status, keyword, page = 1, page_size = 20 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(page_size);
+
+  let where = [];
+  let params = [];
+  if (status) { where.push('d.status = ?'); params.push(status); }
+  if (keyword) { where.push('(d.demand_no LIKE ? OR d.title LIKE ?)'); params.push(`%${keyword}%`, `%${keyword}%`); }
+
+  const whereStr = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = db.prepare(`SELECT COUNT(*) as cnt FROM demands d ${whereStr}`).get(...params).cnt;
+  const rows = db.prepare(`
+    SELECT d.*, h.hospital_name, u.real_name as submitter_name
+    FROM demands d LEFT JOIN hospitals h ON d.source_hospital_id = h.id
+    LEFT JOIN users u ON d.submitter_id = u.id
+    ${whereStr} ORDER BY d.created_at DESC LIMIT ? OFFSET ?
+  `).all(...params, parseInt(page_size), offset);
+
+  res.json({ total, page: parseInt(page), page_size: parseInt(page_size), data: rows });
+});
+
+// 鏂板缓闇€姹?app.post('/api/demands', (req, res) => {
+  const db = getDbSync();
+  const { title, description, source_hospital_code, priority } = req.body;
+
+  if (!title || !description || description.length < 20) {
+    return res.status(400).json({ error: '闇€姹傛爣棰樺拰鎻忚堪锛堣嚦灏?0瀛楋級涓嶈兘涓虹┖' });
+  }
+
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const seq = db.prepare('SELECT COUNT(*) as cnt FROM demands WHERE demand_no LIKE ?').get(`XQ_${today}%`).cnt + 1;
+  const demand_no = `XQ_${today}_${String(seq).padStart(3, '0')}`;
+
+  let hospital_id = null;
+  if (source_hospital_code) {
+    const h = db.prepare('SELECT id FROM hospitals WHERE hospital_code = ?').get(source_hospital_code);
+    if (h) hospital_id = h.id;
+  }
+
+  db.prepare('INSERT INTO demands (demand_no,title,description,source_hospital_id,submitter_id,priority) VALUES (?,?,?,?,?,?)')
+    .run(demand_no, title, description, hospital_id, req.user.id, priority || '涓?);
+
+  db.prepare('INSERT INTO audit_logs (user_id,username,role,action_type,target_type,target_id,ip_address) VALUES (?,?,?,?,?,?,?)')
+    .run(req.user.id, req.user.username, req.user.role, '鍒涘缓闇€姹?, 'demand', demand_no, req.ip);
+
+  res.json({ success: true, demand_no });
+});
+
+// 闇€姹傝瘎浼帮紙浠呮€婚儴锛?app.post('/api/demands/:demand_no/evaluate', (req, res) => {
+  const db = getDbSync();
+  const { demand_no } = req.params;
+  const { eval_result, reject_reason, estimated_launch_date, schedule_note, eval_note } = req.body;
+
+  const demand = db.prepare('SELECT * FROM demands WHERE demand_no = ?').get(demand_no);
+  if (!demand) return res.status(404).json({ error: '闇€姹備笉瀛樺湪' });
+
+  if (eval_result === '宸查噰绾?) {
+    if (!estimated_launch_date) return res.status(400).json({ error: '閲囩撼鏃跺繀椤诲～鍐欓璁′笂绾挎椂闂? });
+    db.prepare('UPDATE demands SET status=?,eval_result=?,estimated_launch_date=?,schedule_note=?,eval_note=?,evaluator_id=?,eval_time=datetime("now","localtime"),updated_at=datetime("now","localtime") WHERE demand_no=?')
+      .run('宸查噰绾?, eval_result, estimated_launch_date, schedule_note || '', eval_note || '', req.user.id, demand_no);
+  } else if (eval_result === '宸查┏鍥?) {
+    if (!reject_reason || reject_reason.length < 10) return res.status(400).json({ error: '椹冲洖鏃跺繀椤诲～鍐欓┏鍥炲師鍥狅紙鑷冲皯10瀛楋級' });
+    db.prepare('UPDATE demands SET status=?,eval_result=?,reject_reason=?,eval_note=?,evaluator_id=?,eval_time=datetime("now","localtime"),updated_at=datetime("now","localtime") WHERE demand_no=?')
+      .run('宸查┏鍥?, eval_result, reject_reason, eval_note || '', req.user.id, demand_no);
+  } else {
+    return res.status(400).json({ error: '鏃犳晥鐨勮瘎浼扮粨璁? });
+  }
+
+  db.prepare('INSERT INTO audit_logs (user_id,username,role,action_type,target_type,target_id,ip_address) VALUES (?,?,?,?,?,?,?)')
+    .run(req.user.id, req.user.username, req.user.role, '闇€姹傝瘎浼?, 'demand', demand_no, req.ip);
+
+  res.json({ success: true });
+});
+
+// ======================= 宸℃ =======================
+
+// 宸℃璁″垝鍒楄〃
+app.get('/api/inspections/plans', (req, res) => {
+  const db = getDbSync();
+  const user = req.user;
+  const isHQ = user.role === 'headquarters';
+  const where = isHQ ? '' : 'WHERE p.responsible_engineer_id = ?';
+  const params = isHQ ? [] : [user.id];
+  const rows = db.prepare(`
+    SELECT p.*, h.hospital_name, u.real_name as engineer_name,
+           (SELECT COUNT(*) FROM inspection_records WHERE plan_id = p.id) as record_count
+    FROM inspection_plans p
+    LEFT JOIN hospitals h ON p.hospital_id = h.id
+    LEFT JOIN users u ON p.responsible_engineer_id = u.id
+    ${where}
+    ORDER BY p.created_at DESC
+  `).all(...params);
+  res.json({ data: rows });
+});
+
+// 鏂板缓宸℃璁″垝
+app.post('/api/inspections/plans', (req, res) => {
+  const db = getDbSync();
+  const { plan_name, hospital_code, device_codes, cycle, start_date } = req.body;
+
+  if (!plan_name || !hospital_code || !cycle || !start_date) {
+    return res.status(400).json({ error: '蹇呭～瀛楁涓嶈兘涓虹┖' });
+  }
+
+  const hospital = db.prepare('SELECT id FROM hospitals WHERE hospital_code = ?').get(hospital_code);
+  if (!hospital) return res.status(400).json({ error: '鍖婚櫌涓嶅瓨鍦? });
+
+  // 鎬婚儴鍙寚瀹氬伐绋嬪笀锛岄潪鎬婚儴榛樿鑷繁
+  const respEngineerId = (req.user.role === 'headquarters' && req.body.engineer_id) ? req.body.engineer_id : req.user.id;
+  const rec = db.prepare('INSERT INTO inspection_plans (plan_name,hospital_id,device_codes,cycle,start_date,responsible_engineer_id,next_inspection_date) VALUES (?,?,?,?,?,?,?)')
+    .run(plan_name, hospital.id, JSON.stringify(device_codes || []), cycle, start_date, respEngineerId, start_date);
+
+  res.json({ success: true, plan_id: rec.lastInsertRowid });
+});
+
+// 鏇存柊宸℃璁″垝锛堟殏鍋?鎭㈠/缁撴潫 鈥?鎬婚儴绠＄悊鐢級
+app.patch('/api/inspections/plans/:id', (req, res) => {
+  const db = getDbSync();
+  if (req.user.role !== 'headquarters') return res.status(403).json({ error: '浠呮€婚儴鍙鐞? });
+  const id = parseInt(req.params.id);
+  const { status, engineer_id } = req.body;
+  const plan = db.prepare('SELECT * FROM inspection_plans WHERE id=?').get(id);
+  if (!plan) return res.status(404).json({ error: '璁″垝涓嶅瓨鍦? });
+  if (status) db.prepare('UPDATE inspection_plans SET status=? WHERE id=?').run(status, id);
+  if (engineer_id) db.prepare('UPDATE inspection_plans SET responsible_engineer_id=? WHERE id=?').run(engineer_id, id);
+  res.json({ message: '宸叉洿鏂? });
+});
+
+// 宸℃璁板綍
+app.post('/api/inspections/records', (req, res) => {
+  const db = getDbSync();
+  const {
+    plan_id, device_code, inspect_date,
+    appearance_ok, wall_distance, ground_level,
+    firmware_version, app_version, run_hours,
+    ip_address, network_stable, packet_loss_rate,
+    drug_inventory_ok, drug_low_stock_num, drug_expiring_num,
+    screen_ok, scanner_ok, printer_ok, lock_ok,
+    result, note
+  } = req.body;
+
+  const rec = db.prepare(`
+    INSERT INTO inspection_records
+    (plan_id,device_code,engineer_id,inspect_date,appearance_ok,wall_distance,ground_level,
+     firmware_version,app_version,run_hours,ip_address,network_stable,packet_loss_rate,
+     drug_inventory_ok,drug_low_stock_num,drug_expiring_num,
+     screen_ok,scanner_ok,printer_ok,lock_ok,result,note)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).run(plan_id || null, device_code, req.user.id, inspect_date || new Date().toISOString().slice(0, 10),
+    appearance_ok ? 1 : 0, wall_distance || null, ground_level || null,
+    firmware_version || '', app_version || '', run_hours || 0,
+    ip_address || '', network_stable ? 1 : 0, packet_loss_rate || null,
+    drug_inventory_ok ? 1 : 0, drug_low_stock_num || 0, drug_expiring_num || 0,
+    screen_ok ? 1 : 0, scanner_ok ? 1 : 0, printer_ok ? 1 : 0, lock_ok ? 1 : 0,
+    result || '姝ｅ父', note || '');
+
+  // 鏇存柊涓嬫宸℃鏃堕棿
+  if (plan_id) {
+    const plan = db.prepare('SELECT * FROM inspection_plans WHERE id = ?').get(plan_id);
+    if (plan) {
+      const next = new Date(inspect_date || new Date());
+      if (plan.cycle === '姣忓懆') next.setDate(next.getDate() + 7);
+      else if (plan.cycle === '姣忎袱鍛?) next.setDate(next.getDate() + 14);
+      else next.setMonth(next.getMonth() + 1);
+      db.prepare('UPDATE inspection_plans SET next_inspection_date=? WHERE id=?')
+        .run(next.toISOString().slice(0, 10), plan_id);
+    }
+  }
+
+  db.prepare('INSERT INTO audit_logs (user_id,username,role,action_type,target_type,ip_address) VALUES (?,?,?,?,?,?)')
+    .run(req.user.id, req.user.username, req.user.role, '鎻愪氦宸℃璁板綍', 'inspection_record', req.ip);
+
+  res.json({ success: true, record_id: rec.lastInsertRowid });
+});
+
+// 宸℃璁板綍鍒楄〃锛堟寜璁″垝ID 鎴?鍏ㄩ儴鏈汉璁板綍锛?app.get('/api/inspections/records', (req, res) => {
+  const db = getDbSync();
+  const { plan_id, page = 1, page_size = 50 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(page_size);
+  let where = [];
+  let params = [];
+  if (req.user.role !== 'headquarters') { where.push('ir.engineer_id = ?'); params.push(req.user.id); }
+  if (plan_id) { where.push('ir.plan_id = ?'); params.push(parseInt(plan_id)); }
+  const whereStr = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = db.prepare(`SELECT COUNT(*) as cnt FROM inspection_records ir ${whereStr}`).get(...params).cnt;
+  const rows = db.prepare(`
+    SELECT ir.*, ip.plan_name, d.device_type, h.hospital_name
+    FROM inspection_records ir
+    LEFT JOIN inspection_plans ip ON ir.plan_id = ip.id
+    LEFT JOIN devices d ON ir.device_code = d.device_code
+    LEFT JOIN hospitals h ON d.hospital_id = h.id
+    ${whereStr}
+    ORDER BY ir.inspect_date DESC LIMIT ? OFFSET ?
+  `).all(...params, parseInt(page_size), offset);
+  res.json({ total, page: parseInt(page), page_size: parseInt(page_size), data: rows });
+});
+
+// 鏇存柊宸℃璁板綍缁撴灉锛堝紓甯稿鐞嗛棴鐜級
+app.patch('/api/inspections/records/:id', (req, res) => {
+  const db = getDbSync();
+  const { result, note } = req.body;
+  const id = parseInt(req.params.id);
+  const record = db.prepare('SELECT * FROM inspection_records WHERE id=?').get(id);
+  if (!record) return res.status(404).json({ error: '璁板綍涓嶅瓨鍦? });
+  if (result) {
+    db.prepare("UPDATE inspection_records SET result=?,note=COALESCE(?,note),created_at=created_at WHERE id=?")
+      .run(result, note || null, id);
+  }
+  res.json({ message: '宸叉洿鏂? });
+});
+
+// ======================= 缁翠繚鍙拌处 =======================
+
+// 缁翠繚璁板綍鍒楄〃
+app.get('/api/maintenance', (req, res) => {
+  const db = getDbSync();
+  const { device_code, type, page = 1, page_size = 20 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(page_size);
+
+  let where = [];
+  let params = [];
+  if (device_code) { where.push('m.device_code = ?'); params.push(device_code); }
+  if (type) { where.push('m.type = ?'); params.push(type); }
+
+  const whereStr = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = db.prepare(`SELECT COUNT(*) as cnt FROM maintenance_records m ${whereStr}`).get(...params).cnt;
+  const rows = db.prepare(`
+    SELECT m.*, d.device_type, h.hospital_name, u.real_name as operator_name
+    FROM maintenance_records m
+    LEFT JOIN devices d ON m.device_code = d.device_code
+    LEFT JOIN hospitals h ON d.hospital_id = h.id
+    LEFT JOIN users u ON m.operator_id = u.id
+    ${whereStr} ORDER BY m.maintenance_date DESC LIMIT ? OFFSET ?
+  `).all(...params, parseInt(page_size), offset);
+
+  res.json({ total, page: parseInt(page), page_size: parseInt(page_size), data: rows });
+});
+
+// 鏂板缓缁翠繚璁板綍
+app.post('/api/maintenance', (req, res) => {
+  const db = getDbSync();
+  const { device_code, type, description, part_name, part_model, part_quantity, part_batch, maintenance_date } = req.body;
+
+  if (!device_code || !type || !maintenance_date) {
+    return res.status(400).json({ error: '璁惧缂栫爜銆佺淮淇濈被鍨嬨€佺淮淇濇棩鏈熶笉鑳戒负绌? });
+  }
+
+  const today = maintenance_date.replace(/-/g, '');
+  const seq = db.prepare('SELECT COUNT(*) as cnt FROM maintenance_records WHERE maintenance_no LIKE ?').get(`WB_${device_code.slice(-6)}_${today}%`).cnt + 1;
+  const maintenance_no = `WB_${device_code.slice(-6)}_${today}_${String(seq).padStart(2, '0')}`;
+
+  const rec = db.prepare(`INSERT INTO maintenance_records (maintenance_no,device_code,type,description,operator_id,part_name,part_model,part_quantity,part_batch,maintenance_date)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`)
+    .run(maintenance_no, device_code, type, description || '', req.user.id, part_name || '', part_model || '', part_quantity || 0, part_batch || '', maintenance_date);
+
+  // 缁翠繚鍥轰欢鍗囩骇鏃舵洿鏂拌澶囩増鏈?  if (type === '鍥轰欢鍗囩骇' && req.body.firmware_version_after) {
+    db.prepare('UPDATE devices SET firmware_version=? WHERE device_code=?').run(req.body.firmware_version_after, device_code);
+  }
+
+  db.prepare('INSERT INTO audit_logs (user_id,username,role,action_type,target_type,target_id,ip_address) VALUES (?,?,?,?,?,?,?)')
+    .run(req.user.id, req.user.username, req.user.role, '鍒涘缓缁翠繚璁板綍', 'maintenance', maintenance_no, req.ip);
+
+  res.json({ success: true, maintenance_no });
+});
+
+// ======================= 鐭ヨ瘑搴?=======================
+
+// 鐭ヨ瘑搴撳垪琛?app.get('/api/knowledge', (req, res) => {
+  const db = getDbSync();
+  const { keyword, category, page = 1, page_size = 20 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(page_size);
+
+  let where = [];
+  let params = [];
+  if (category) { where.push('kb.fault_category_l1 = ?'); params.push(category); }
+  if (keyword) { where.push('(kb.title LIKE ? OR kb.description_summary LIKE ? OR kb.solution LIKE ?)'); params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`); }
+
+  const whereStr = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = db.prepare(`SELECT COUNT(*) as cnt FROM knowledge_base kb ${whereStr}`).get(...params).cnt;
+  const rows = db.prepare(`
+    SELECT kb.*, u.real_name as author_name
+    FROM knowledge_base kb LEFT JOIN users u ON kb.author_id = u.id
+    ${whereStr} ORDER BY kb.reference_count DESC, kb.created_at DESC LIMIT ? OFFSET ?
+  `).all(...params, parseInt(page_size), offset);
+
+  res.json({ total, page: parseInt(page), page_size: parseInt(page_size), data: rows });
+});
+
+// 鐭ヨ瘑搴撴悳绱紙蹇呴』鍦?/:id 涔嬪墠锛屽惁鍒?/search 浼氳 :id 鍖归厤锛?app.get('/api/knowledge/search', (req, res) => {
+  const db = getDbSync();
+  const { q, fault_no } = req.query;
+  if (!q || q.length < 2) return res.json({ data: [] });
+
+  const rows = db.prepare(`
+    SELECT kb.*, u.real_name as author_name,
+           (kb.view_count + kb.reference_count * 3) as relevance
+    FROM knowledge_base kb LEFT JOIN users u ON kb.author_id = u.id
+    WHERE kb.title LIKE ? OR kb.description_summary LIKE ? OR kb.solution LIKE ? OR kb.fault_category_l1 LIKE ?
+    ORDER BY relevance DESC LIMIT 20
+  `).all(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+
+  // 浠呭綋浠庢晠闅滃伐鍗曚笂涓嬫枃鎼滅储鏃讹紝鎵嶈褰曞紩鐢?  if (fault_no && rows.length > 0 && req.user) {
+    const top = rows[0];
+    const fault = db.prepare('SELECT fault_no FROM fault_orders WHERE fault_no = ?').get(fault_no);
+    if (fault) {
+      const exist = db.prepare('SELECT id FROM knowledge_references WHERE knowledge_id=? AND fault_no=?').get(top.id, fault_no);
+      if (!exist) {
+        db.prepare('UPDATE knowledge_base SET reference_count=reference_count+1 WHERE id=?').run(top.id);
+        db.prepare('INSERT INTO knowledge_references (knowledge_id,fault_no,engineer_id) VALUES (?,?,?)').run(top.id, fault_no, req.user.id);
+        console.log(`[KB-REF] 宸ュ崟 ${fault_no} 寮曠敤浜嗙煡璇?#${top.id} "${top.title}"`);
+      }
+    }
+  }
+
+  res.json({ data: rows });
+});
+
+// 鏌ヨ鏌愬伐鍗曞凡寮曠敤鐨勭煡璇嗗簱鏉＄洰锛堝繀椤诲湪 /:id 涔嬪墠锛?app.get('/api/knowledge/references/:fault_no', (req, res) => {
+  try {
+    const db = getDbSync();
+    const rows = db.prepare(`
+      SELECT kr.*, kb.title, kb.fault_category_l1
+      FROM knowledge_references kr
+      JOIN knowledge_base kb ON kb.id = kr.knowledge_id
+      WHERE kr.fault_no = ?
+      ORDER BY kr.created_at DESC
+    `).all(req.params.fault_no);
+    res.json({ data: rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 鐭ヨ瘑搴撹鎯?app.get('/api/knowledge/:id', (req, res) => {
+  const db = getDbSync();
+  const row = db.prepare('SELECT kb.*, u.real_name as author_name FROM knowledge_base kb LEFT JOIN users u ON kb.author_id = u.id WHERE kb.id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: '鐭ヨ瘑鏉＄洰涓嶅瓨鍦? });
+  db.prepare('UPDATE knowledge_base SET view_count=view_count+1 WHERE id=?').run(row.id);
+  res.json(row);
+});
+
+// 鏂板鐭ヨ瘑搴擄紙鎵嬪姩锛?app.post('/api/knowledge', (req, res) => {
+  const db = getDbSync();
+  const { fault_category_l1, fault_category_l2, title, description_summary, solution, applicable_models } = req.body;
+
+  if (!fault_category_l1 || !title || !solution) return res.status(400).json({ error: '鍒嗙被銆佹爣棰樸€佽В鍐虫柟妗堜笉鑳戒负绌? });
+
+  const rec = db.prepare('INSERT INTO knowledge_base (fault_category_l1,fault_category_l2,title,description_summary,solution,applicable_models,author_id) VALUES (?,?,?,?,?,?,?)')
+    .run(fault_category_l1, fault_category_l2 || '', title, description_summary || '', solution, applicable_models || '', req.user.id);
+
+  res.json({ success: true, id: rec.lastInsertRowid });
+});
+
+// ======================= 娑堟伅閫氱煡 =======================
+
+// 寮曠敤鐭ヨ瘑搴撴潯鐩紙浠庡伐鍗曡鎯呴〉鐐瑰嚮"寮曠敤"鎸夐挳锛?app.post('/api/knowledge/:id/reference', (req, res) => {
+  try {
+    const db = getDbSync();
+    const id = parseInt(req.params.id);
+    const { fault_no } = req.body;
+    if (!fault_no) return res.status(400).json({ error: '缂哄皯宸ュ崟鍙? });
+
+    // 鏍￠獙宸ュ崟瀛樺湪
+    const fault = db.prepare('SELECT fault_no FROM fault_orders WHERE fault_no = ?').get(fault_no);
+    if (!fault) return res.status(404).json({ error: '宸ュ崟涓嶅瓨鍦? });
+
+    // 鏍￠獙鐭ヨ瘑鏉＄洰瀛樺湪
+    const kb = db.prepare('SELECT id,title FROM knowledge_base WHERE id = ?').get(id);
+    if (!kb) return res.status(404).json({ error: '鐭ヨ瘑鏉＄洰涓嶅瓨鍦? });
+
+    // 闃查噸锛氬悓宸ュ崟鍚岀煡璇嗘潯鐩笉閲嶅璁℃暟
+    const exist = db.prepare(
+      'SELECT id FROM knowledge_references WHERE knowledge_id = ? AND fault_no = ?'
+    ).get(id, fault_no);
+    if (!exist) {
+      db.prepare('UPDATE knowledge_base SET reference_count = reference_count + 1 WHERE id = ?').run(id);
+      db.prepare(
+        'INSERT INTO knowledge_references (knowledge_id,fault_no,engineer_id) VALUES (?,?,?)'
+      ).run(id, fault_no, req.user?.id || null);
+      console.log(`[KB-REF] 宸ュ崟 ${fault_no} 寮曠敤鐭ヨ瘑 #${id} "${kb.title}"`);
+    }
+
+    res.json({ message: '宸插紩鐢?, reference_count: id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 娑堟伅鍒楄〃
+app.get('/api/notifications', (req, res) => {
+  const db = getDbSync();
+  const { page = 1, page_size = 20, unread_only } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(page_size);
+  const unreadWhere = unread_only === 'true' ? 'AND n.is_read = 0' : '';
+
+  const total = db.prepare(`SELECT COUNT(*) as cnt FROM notifications n WHERE n.target_user_id = ? ${unreadWhere}`).get(req.user.id).cnt;
+  const rows = db.prepare(`
+    SELECT n.* FROM notifications n
+    WHERE n.target_user_id = ? ${unreadWhere}
+    ORDER BY n.created_at DESC LIMIT ? OFFSET ?
+  `).all(req.user.id, parseInt(page_size), offset);
+
+  res.json({ total, page: parseInt(page), page_size: parseInt(page_size), data: rows });
+});
+
+// 鏍囪宸茶
+app.patch('/api/notifications/:id/read', (req, res) => {
+  const db = getDbSync();
+  db.prepare('UPDATE notifications SET is_read=1 WHERE id=? AND target_user_id=?').run(req.params.id, req.user.id);
+  res.json({ success: true });
+});
+
+// 鍏ㄩ儴宸茶
+app.post('/api/notifications/read-all', (req, res) => {
+  const db = getDbSync();
+  db.prepare('UPDATE notifications SET is_read=1 WHERE target_user_id=?').run(req.user.id);
+  res.json({ success: true });
+});
+
+// ======================= 鍖婚櫌绠＄悊 =======================
+
+// 鍖婚櫌鍒楄〃
+// ======================= 鍖婚櫌绠＄悊 =======================
+app.get('/api/hospitals', (req, res) => {
+  const db = getDbSync();
+  const user = req.user;
+  const { keyword, page = 1, page_size = 50 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(page_size);
+
+  const accessFilter = regionFilter.buildHospitalAccessFilter(user, 'h', db);
+  let where = [];
+  let params = [];
+  if (keyword) { where.push('(h.hospital_name LIKE ? OR h.hospital_code LIKE ? OR h.province LIKE ? OR h.city LIKE ?)'); params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`); }
+  const whereStr = accessFilter.sql + (where.length ? ' AND ' + where.join(' AND ') : '');
+  const allParams = [...accessFilter.params, ...params];
+
+  const total = db.prepare(`SELECT COUNT(*) as cnt FROM hospitals h WHERE 1=1${whereStr}`).get(...allParams).cnt;
+  const rows = db.prepare(`
+    SELECT h.*, u.real_name as engineer_name, a.company_name as supplier_name
+    FROM hospitals h
+    LEFT JOIN users u ON h.engineer_id = u.id
+    LEFT JOIN users a ON h.supplier_id = a.id
+    WHERE 1=1${whereStr}
+    ORDER BY h.hospital_name LIMIT ? OFFSET ?
+  `).all(...allParams, parseInt(page_size), offset);
+  res.json({ total, page: parseInt(page), page_size: parseInt(page_size), data: rows });
+});
+
+// 鏂板缓鍖婚櫌锛堜緵搴斿晢鍙嚜涓诲垱寤猴級
+app.post('/api/hospitals', (req, res) => {
+  const db = getDbSync();
+  const user = req.user;
+  const { hospital_name, province, city, region, address, contact_person, contact_phone, hospital_level, bed_count } = req.body;
+
+  if (!hospital_name || !province || !city) return res.status(400).json({ error: '鍖婚櫌鍚嶇О銆佺渷浠姐€佸煄甯傚繀濉? });
+
+  // 閲嶅鏍￠獙
+  const dup = db.prepare('SELECT id FROM hospitals WHERE hospital_name = ?').get(hospital_name);
+  if (dup) return res.status(400).json({ error: '璇ュ尰闄㈠悕绉板凡瀛樺湪锛岃鍕块噸澶嶅垱寤? });
+
+  // 鐢熸垚 hospital_code
+  const cnt = db.prepare('SELECT COUNT(*) as cnt FROM hospitals').get().cnt;
+  const hospital_code = 'H' + String(cnt + 1).padStart(3, '0');
+
+  // 纭畾 supplier_id锛堟妧鏈汉鍛樺垱寤烘椂褰掑睘鍏朵笂绾т唬鐞嗗晢锛?  let supplierId = null;
+  if (user.role === 'provincial_agent' || user.role === 'city_agent') {
+    supplierId = user.id;
+  } else if (user.role === 'engineer') {
+    supplierId = user.parent_agent_id;
+  }
+
+  const resolvedRegion = region || regionFilter.getRegion(province);
+  db.prepare(`
+    INSERT INTO hospitals (hospital_code, hospital_name, province, city, region, address, contact_person, contact_phone, supplier_id, source, hospital_level, bed_count)
+    VALUES (?,?,?,?,?,?,?,?,?,'manual',?,?)
+  `).run(hospital_code, hospital_name, province, city, resolvedRegion, address || '', contact_person || '', contact_phone || '', supplierId, hospital_level || '', bed_count || 0);
+
+  const newH = db.prepare('SELECT * FROM hospitals WHERE hospital_code = ?').get(hospital_code);
+  res.json({ success: true, data: newH });
+});
+
+// 缂栬緫鍖婚櫌锛堟€婚儴/渚涘簲鍟嗗彲缂栬緫锛?app.put('/api/hospitals/:id', (req, res) => {
+  const db = getDbSync();
+  const user = req.user;
+  const { id } = req.params;
+  const { hospital_name, province, city, address, contact_person, contact_phone, hospital_level, bed_count, engineer_id, supplier_id } = req.body;
+
+  const h = db.prepare('SELECT * FROM hospitals WHERE id = ?').get(id);
+  if (!h) return res.status(404).json({ error: '鍖婚櫌涓嶅瓨鍦? });
+
+  // 鏉冮檺妫€鏌?  if (user.role !== 'headquarters') {
+    if (user.role === 'provincial_agent' || user.role === 'city_agent') {
+      if (h.supplier_id !== user.id) return res.status(403).json({ error: '鏃犳潈缂栬緫鍏朵粬渚涘簲鍟嗙殑鍖婚櫌' });
+    } else {
+      return res.status(403).json({ error: '浠呮€婚儴鍜屼唬鐞嗗晢鍙紪杈戝尰闄? });
+    }
+  }
+
+  // 鍚嶇О閲嶅妫€鏌?  if (hospital_name && hospital_name !== h.hospital_name) {
+    const dup = db.prepare('SELECT id FROM hospitals WHERE hospital_name = ? AND id != ?').get(hospital_name, id);
+    if (dup) return res.status(400).json({ error: '鍖婚櫌鍚嶇О閲嶅' });
+  }
+
+  const regionVal = province ? regionFilter.getRegion(province) : h.region;
+  db.prepare(`
+    UPDATE hospitals SET hospital_name=?, province=?, city=?, region=?, address=?, contact_person=?, contact_phone=?,
+    hospital_level=?, bed_count=?, engineer_id=?, supplier_id=?, updated_at=datetime('now','localtime')
+    WHERE id=?
+  `).run(
+    hospital_name || h.hospital_name,
+    province || h.province,
+    city || h.city,
+    regionVal,
+    address !== undefined ? address : h.address,
+    contact_person !== undefined ? contact_person : h.contact_person,
+    contact_phone !== undefined ? contact_phone : h.contact_phone,
+    hospital_level !== undefined ? hospital_level : h.hospital_level,
+    bed_count !== undefined ? bed_count : h.bed_count,
+    engineer_id !== undefined ? engineer_id : h.engineer_id,
+    supplier_id !== undefined ? supplier_id : h.supplier_id,
+    id
+  );
+
+  const updated = db.prepare('SELECT * FROM hospitals WHERE id = ?').get(id);
+  res.json({ success: true, data: updated });
+});
+
+// ======================= 瀹¤鏃ュ織锛堜粎鎬婚儴锛?=======================
+
+app.get('/api/audit-logs', (req, res) => {
+  const db = getDbSync();
+  const { action_type, username, keyword, start_date, end_date, page = 1, page_size = 50 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(page_size);
+
+  let where = [];
+  let params = [];
+  if (action_type) { where.push('action_type = ?'); params.push(action_type); }
+  if (username) { where.push('username LIKE ?'); params.push(`%${username}%`); }
+  if (start_date) { where.push('created_at >= ?'); params.push(start_date); }
+  if (end_date) { where.push('created_at <= ?'); params.push(end_date + ' 23:59:59'); }
+  if (keyword) { where.push('(target_id LIKE ? OR old_value LIKE ? OR new_value LIKE ?)'); params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`); }
+
+  const whereStr = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = db.prepare(`SELECT COUNT(*) as cnt FROM audit_logs ${whereStr}`).get(...params).cnt;
+  const rows = db.prepare(`
+    SELECT * FROM audit_logs ${whereStr} ORDER BY created_at DESC LIMIT ? OFFSET ?
+  `).all(...params, parseInt(page_size), offset);
+
+  res.json({ total, page: parseInt(page), page_size: parseInt(page_size), data: rows });
+});
+
+// ======================= 缁熻鏁版嵁 =======================
+
+app.get('/api/statistics', (req, res) => {
+  const db = getDbSync();
+  const { start_date, end_date } = req.query;
+  const dateFilter = (start_date && end_date) ? `WHERE created_at >= '${start_date}' AND created_at <= '${end_date} 23:59:59'` : '';
+
+  const faultByLevel = db.prepare(`SELECT fault_level, COUNT(*) as cnt FROM fault_orders ${dateFilter.replace('WHERE', 'WHERE ')} GROUP BY fault_level`).all();
+  const faultByCategory = db.prepare(`SELECT fault_category_l1, COUNT(*) as cnt FROM fault_orders ${dateFilter} GROUP BY fault_category_l1`).all();
+  const faultByStatus = db.prepare(`SELECT status, COUNT(*) as cnt FROM fault_orders ${dateFilter} GROUP BY status`).all();
+  const faultTrend = db.prepare(`
+    SELECT date(created_at) as date, COUNT(*) as cnt, SUM(CASE WHEN status='宸查棴鐜? THEN 1 ELSE 0 END) as closed
+    FROM fault_orders WHERE created_at >= datetime('now','localtime','-30 days')
+    GROUP BY date(created_at) ORDER BY date ASC
+  `).all();
+  const deviceOnlineRate = db.prepare('SELECT COUNT(*) as total, SUM(CASE WHEN status = "鍦ㄧ嚎" THEN 1 ELSE 0 END) as online FROM devices').get();
+  const avgResponseTime = db.prepare(`
+    SELECT AVG(
+      julianday(investigation_time) * 86400 - julianday(created_at) * 86400
+    ) as avg_seconds FROM fault_orders WHERE investigation_time IS NOT NULL ${dateFilter}
+  `).get();
+  const demandStats = db.prepare('SELECT status, COUNT(*) as cnt FROM demands GROUP BY status').all();
+
+  res.json({
+    fault_by_level: faultByLevel,
+    fault_by_category: faultByCategory,
+    fault_by_status: faultByStatus,
+    fault_trend: faultTrend,
+    device_online_rate: deviceOnlineRate.total > 0 ? Math.round(deviceOnlineRate.online / deviceOnlineRate.total * 100) : 0,
+    avg_response_hours: avgResponseTime.avg_seconds ? Math.round(avgResponseTime.avg_seconds / 3600 * 10) / 10 : 0,
+    demand_stats: demandStats
+  });
+});
+
+// ======================= 澶囦欢绠＄悊 =======================
+
+app.get('/api/spare-parts', (req, res) => {
+  const db = getDbSync();
+  const rows = db.prepare('SELECT * FROM spare_parts ORDER BY part_name').all();
+  res.json({ data: rows });
+});
+
+app.post('/api/spare-parts', (req, res) => {
+  const db = getDbSync();
+  const { part_name, part_model, unit, stock_quantity, safety_stock } = req.body;
+  if (!part_name) return res.status(400).json({ error: '閰嶄欢鍚嶇О涓嶈兘涓虹┖' });
+
+  db.prepare('INSERT INTO spare_parts (part_name,part_model,unit,stock_quantity,safety_stock) VALUES (?,?,?,?,?)')
+    .run(part_name, part_model || '', unit || '涓?, stock_quantity || 0, safety_stock || 5);
+
+  res.json({ success: true });
+});
+
+app.patch('/api/spare-parts/:id', (req, res) => {
+  const db = getDbSync();
+  const { stock_quantity } = req.body;
+  db.prepare('UPDATE spare_parts SET stock_quantity=? WHERE id=?').run(stock_quantity, req.params.id);
+  res.json({ success: true });
+});
+
+// ======================= 绯荤粺鎺ュ彛 =======================
+
+// 绯荤粺鐘舵€?app.get('/api/status', (req, res) => {
+  const db = getDbSync();
+  const cfg = {};
+  db.prepare('SELECT key, value FROM system_config').all().forEach(r => cfg[r.key] = r.value);
+  res.json({ status: 'online', version: cfg['app_version'] || '2.0.0', config: cfg });
+});
+
+// 瀛楀吀椤?app.get('/api/dicts', (req, res) => {
+  const db = getDbSync();
+  const provinces = db.prepare(`SELECT DISTINCT province FROM hospitals WHERE province IS NOT NULL AND province != '' ORDER BY province`).all().map(r => r.province);
+  const cities = db.prepare(`SELECT DISTINCT city FROM hospitals WHERE city IS NOT NULL AND city != '' ORDER BY city`).all().map(r => r.city);
+  res.json({
+    fault_levels: ['涓€鑸?, '绱ф€?, '閲嶅ぇ'],
+    fault_categories_l1: ['纭欢', '杞欢', '缃戠粶', '鑰楁潗', '鍏朵粬'],
+    device_types: ['鍙板紡', '绔嬪紡'],
+    device_status: ['鍦ㄧ嚎', '绂荤嚎', '缁翠慨涓?, '宸叉姤搴?],
+    flow_status: ['寰呭鐞?, '澶勭悊涓?, '寰呭鏍?, '宸查棴鐜?],
+    demand_status: ['寰呰瘎浼?, '宸查噰绾?, '宸查┏鍥?, '宸蹭笂绾?],
+    demand_priority: ['楂?, '涓?, '浣?],
+    inspection_cycles: ['姣忓懆', '姣忎袱鍛?, '姣忔湀'],
+    inspection_results: ['姝ｅ父', '寮傚父寰呭鐞?, '宸插鐞?],
+    maintenance_types: ['閰嶄欢鏇存崲', '鍥轰欢鍗囩骇', '娓呮磥淇濆吇', '鏍″噯璋冭瘯', '鍏朵粬'],
+    feedback_methods: ['鐢佃瘽', '鐜板満', '寰俊'],
+    satisfaction_levels: ['闈炲父婊℃剰', '婊℃剰', '涓€鑸?, '涓嶆弧鎰?],
+    user_roles: [
+      { value: 'engineer', label: '宸ョ▼甯? },
+      { value: 'dealer', label: '缁忛攢鍟? },
+      { value: 'headquarters', label: '鎬婚儴' }
+    ],
+    provinces: provinces,
+    cities: cities,
+  });
+});
+
+// 鍏ㄥ眬寮傚父澶勭悊
+app.use((err, req, res, next) => {
+  console.error('[ERROR]', err);
+  res.status(500).json({ error: err.message || '鏈嶅姟鍣ㄥ唴閮ㄩ敊璇? });
+});
+
+// 鑾峰彇灞€鍩熺綉 IP
+function getLanIP() {
+  const os = require('os');
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal && iface.address.startsWith('192.168.')) {
+        return iface.address;
+      }
+    }
+  }
+  return null;
+}
+
+// 鍚姩
+initDb().then(() => {
+  console.log('[DB] 鏁版嵁搴撳垵濮嬪寲瀹屾垚');
+  const server = app.listen(PORT, () => {
+    const lanIP = getLanIP();
+    console.log('\n[鏈嶅姟鍣╙ 楹荤簿鑽搧鏅鸿兘鏌滃敭鍚庤繍缁村伐鍏峰凡鍚姩');
+    console.log(`[鏈嶅姟鍣╙ 鏈満璁块棶: http://localhost:${PORT}`);
+    if (lanIP) console.log(`[鏈嶅姟鍣╙ 灞€鍩熺綉璁块棶: http://${lanIP}:${PORT}`);
+    console.log(`[鏈嶅姟鍣╙ 鏁版嵁鐩綍: ${DATA_DIR}`);
+    console.log('\n榛樿璐﹀彿:');
+    console.log('  鐪佷唬: dealer01 / 123456');
+    console.log('  甯備唬(骞垮窞): dealer02 / 123456');
+    console.log('  甯備唬(娣卞湷): dealer03 / 123456');
+    console.log('  宸ョ▼甯?骞垮窞): engineer01 / 123456');
+    console.log('  宸ョ▼甯?娣卞湷): engineer02 / 123456');
+    console.log('  鎬婚儴: admin01 / 123456');
+  });
+}).catch(err => {
+  console.error('[DB] 鏁版嵁搴撳垵濮嬪寲澶辫触:', err);
+  process.exit(1);
+});
+
+module.exports = app;
