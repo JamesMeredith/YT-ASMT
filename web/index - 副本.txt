@@ -1,0 +1,2047 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>麻精药品智能柜售后运维工具</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    /* Login page */
+    .login-page { min-height:100vh; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#1A5276,#2E86C1); }
+    .login-box { background:#fff; border-radius:16px; padding:40px; width:400px; max-width:90vw; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+    .login-box h1 { color:#1A5276; font-size:20px; text-align:center; margin-bottom:4px; }
+    .login-box .sub { color:#95A5A6; font-size:13px; text-align:center; margin-bottom:28px; }
+    .login-box .form-group { margin-bottom:18px; }
+    .login-box label { display:block; font-size:13px; color:#7F8C8D; margin-bottom:6px; }
+    .login-box input { width:100%; padding:10px 12px; border:1px solid #E0E0E0; border-radius:6px; font-size:14px; outline:none; transition:border .2s; }
+    .login-box input:focus { border-color:#1A5276; }
+    .login-box .btn { width:100%; padding:12px; font-size:15px; margin-top:8px; }
+    .login-error { color:#CC0000; font-size:12px; margin-top:12px; text-align:center; display:none; }
+    #app { display:none; }
+
+    /* Sidebar Nav Groups */
+    .nav-group { margin-bottom:4px; }
+    .nav-group-title { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; font-size:11px; color:var(--text-muted, #95A5A6); text-transform:uppercase; letter-spacing:0.5px; cursor:pointer; user-select:none; border-radius:4px; transition:background .15s; }
+    .nav-group-title:hover { background:var(--bg-hover, rgba(0,0,0,.04)); }
+    .nav-group-title .nav-text { flex:1; }
+    .nav-arrow { font-size:10px; transition:transform .2s; }
+    .nav-group.collapsed .nav-arrow { transform:rotate(-90deg); }
+    .nav-group.collapsed .nav-group-items { display:none; }
+    .nav-group-items { overflow:hidden; }
+    .nav-group-items .nav-item { padding-left:28px; }
+  </style>
+</head>
+<body>
+  <!-- Login Page -->
+  <div id="loginPage" class="login-page">
+    <div class="login-box">
+      <h1>麻精药品智能柜</h1>
+      <p class="sub">售后运维工具 v2.0</p>
+      <div class="form-group">
+        <label>用户名</label>
+        <input type="text" id="loginUser" placeholder="请输入用户名" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input type="password" id="loginPass" placeholder="请输入密码" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary btn-lg" onclick="doLogin()">登 录</button>
+      <p id="loginError" class="login-error"></p>
+      <p style="text-align:center;margin-top:16px;font-size:11px;color:#95A5A6;">
+        默认密码：123456（省代:dealer01 | 市代:dealer02/03 | 工程师:engineer01/02 | 总部:admin01）
+      </p>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" class="app-layout">
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <h1>麻精药品</h1>
+        <div class="subtitle">售后运维工具 v2.0</div>
+      </div>
+      <nav class="sidebar-nav" id="sidebarNav">
+        <!-- 工作台 -->
+        <div class="nav-item" data-page="dashboard" onclick="navigateTo('dashboard')">
+          <span class="icon">📊</span><span class="nav-text">工作台</span>
+        </div>
+
+        <!-- 运维管理 -->
+        <div class="nav-group">
+          <div class="nav-group-title" onclick="toggleNavGroup(this)"><span class="nav-text">🔧 运维管理</span><span class="nav-arrow">▾</span></div>
+          <div class="nav-group-items">
+            <div class="nav-item" data-page="faults" onclick="navigateTo('faults')">
+              <span class="icon">📋</span><span class="nav-text">工单管理</span>
+              <span class="badge" id="faultBadge" style="display:none;"></span>
+            </div>
+            <div class="nav-item" data-page="inspections" onclick="navigateTo('inspections')">
+              <span class="icon">🔍</span><span class="nav-text">巡检管理</span>
+            </div>
+            <div class="nav-item" data-page="maintenance" onclick="navigateTo('maintenance')">
+              <span class="icon">🔨</span><span class="nav-text">维保台账</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 资产管理 -->
+        <div class="nav-group">
+          <div class="nav-group-title" onclick="toggleNavGroup(this)"><span class="nav-text">📦 资产管理</span><span class="nav-arrow">▾</span></div>
+          <div class="nav-group-items">
+            <div class="nav-item" data-page="devices" onclick="navigateTo('devices')">
+              <span class="icon">🏥</span><span class="nav-text">设备管理</span>
+            </div>
+            <div class="nav-item" data-page="parts" onclick="navigateTo('parts')">
+              <span class="icon">⚙️</span><span class="nav-text">配件管理</span>
+              <span class="badge" id="partsLowBadge" style="display:none;background:var(--danger);"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 售中管理 -->
+        <div class="nav-group nav-pre-sales" style="display:none;">
+          <div class="nav-group-title" onclick="toggleNavGroup(this)"><span class="nav-text">📋 售中管理</span><span class="nav-arrow">▾</span></div>
+          <div class="nav-group-items">
+            <div class="nav-item" data-page="preSales" onclick="navigateTo('preSales')">
+              <span class="icon">📋</span><span class="nav-text">售中项目</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 协作中心 -->
+        <div class="nav-group">
+          <div class="nav-group-title" onclick="toggleNavGroup(this)"><span class="nav-text">💡 协作中心</span><span class="nav-arrow">▾</span></div>
+          <div class="nav-group-items">
+            <div class="nav-item" data-page="demands" onclick="navigateTo('demands')">
+              <span class="icon">💡</span><span class="nav-text">需求管理</span>
+            </div>
+            <div class="nav-item" data-page="knowledge" onclick="navigateTo('knowledge')">
+              <span class="icon">📚</span><span class="nav-text">知识库</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 系统管理 (HQ/省代可见) -->
+        <div class="nav-group nav-hq-only" style="display:none;">
+          <div class="nav-group-title" onclick="toggleNavGroup(this)"><span class="nav-text">⚙ 系统管理</span><span class="nav-arrow">▾</span></div>
+          <div class="nav-group-items">
+            <div class="nav-item" data-page="users" onclick="navigateTo('users')">
+              <span class="icon">👥</span><span class="nav-text">用户管理</span>
+            </div>
+            <div class="nav-item" data-page="statistics" onclick="navigateTo('statistics')">
+              <span class="icon">📈</span><span class="nav-text">数据统计</span>
+            </div>
+            <div class="nav-item" data-page="deviceModels" onclick="navigateTo('deviceModels')">
+              <span class="icon">📦</span><span class="nav-text">设备型号管理</span>
+            </div>
+            <div class="nav-item" data-page="preSalesConfig" onclick="navigateTo('preSalesConfig')">
+              <span class="icon">🔧</span><span class="nav-text">售中节点配置</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 个人 -->
+        <div class="nav-group">
+          <div class="nav-group-title" onclick="toggleNavGroup(this)"><span class="nav-text">👤 个人</span><span class="nav-arrow">▾</span></div>
+          <div class="nav-group-items">
+            <div class="nav-item" data-page="notifications" onclick="navigateTo('notifications')">
+              <span class="icon">🔔</span><span class="nav-text">消息通知</span>
+              <span class="badge" id="notifBadge" style="display:none;"></span>
+            </div>
+            <div class="nav-item" data-page="profile" onclick="navigateTo('profile')">
+              <span class="icon">👤</span><span class="nav-text">个人中心</span>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </div>
+
+    <!-- Main -->
+    <div class="main-content">
+      <div class="app-header">
+        <div class="header-left">
+          <button class="btn btn-sm" onclick="toggleSidebar()" style="font-size:18px;">☰</button>
+          <h2 id="pageTitle">工作台</h2>
+        </div>
+        <div class="header-right">
+          <span class="offline-badge" id="offlineBadge">⚠ 离线模式</span>
+          <span class="sync-status" id="syncStatus"></span>
+          <div class="user-info" onclick="navigateTo('profile')" title="个人中心">
+            <div class="user-avatar" id="userAvatar">?</div>
+            <span id="userName" style="font-size:13px;"></span>
+            <span style="font-size:10px;">▼</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Page Content Area -->
+      <div class="page-content" id="pageContent">
+        <!-- Dynamically rendered -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Global Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="/js/app.js"></script>
+  <script src="/js/pages.js"></script>
+  <script>
+    // ========== 路由 ==========
+    const pageTitles = {
+      dashboard: '工作台', faults: '工单管理', devices: '设备管理',
+      inspections: '巡检管理', maintenance: '维保台账', parts: '配件管理',
+      demands: '需求管理',
+      knowledge: '知识库', statistics: '数据统计', notifications: '消息通知',
+      users: '用户管理', profile: '个人中心'
+    };
+
+    let currentPage = 'dashboard';
+    let dicts = {};
+
+    async function initApp() {
+      // 检查登录状态
+      if (!API.token) { showLogin(); return; }
+      try {
+        const r = await API.get('/api/auth/me', { silent:true });
+        if (!r) { showLogin(); return; }
+        API.user = r.user;
+        showApp();
+        await loadDicts();
+        navigateTo('dashboard');
+        startSync();
+      } catch(e) { showLogin(); }
+    }
+
+    function showLogin() {
+      document.getElementById('loginPage').style.display = 'flex';
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('loginUser').focus();
+    }
+
+    function showApp() {
+      document.getElementById('loginPage').style.display = 'none';
+      document.getElementById('app').style.display = 'flex';
+      const u = API.user;
+      document.getElementById('userName').textContent = u.real_name || u.username;
+      document.getElementById('userAvatar').textContent = (u.real_name || u.username).slice(0,1);
+      // 总部/省代可见：系统管理分组
+      const navHQ = document.querySelectorAll('.nav-hq-only');
+      navHQ.forEach(el => el.style.display = (u.role === 'headquarters' || u.role === 'provincial_agent') ? 'block' : 'none');
+      // 售中管理：工程师+代理商可见，总部不可见（总部管理节点定义，不执行项目）
+      const navPS = document.querySelectorAll('.nav-pre-sales');
+      navPS.forEach(el => el.style.display = (u.role !== 'headquarters') ? 'block' : 'none');
+      // 主题
+      applyTheme();
+    }
+
+    function toggleNavGroup(el) {
+      el.parentElement.classList.toggle('collapsed');
+    }
+
+    async function doLogin() {
+      const u = document.getElementById('loginUser').value.trim();
+      const p = document.getElementById('loginPass').value;
+      if (!u || !p) return showLoginError('请输入用户名和密码');
+      try {
+        await API.login(u, p);
+        showApp();
+        await loadDicts();
+        navigateTo('dashboard');
+        startSync();
+        Toast.success('登录成功');
+      } catch(e) {
+        showLoginError(e.message || '登录失败');
+      }
+    }
+
+    function showLoginError(msg) {
+      const el = document.getElementById('loginError');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    document.getElementById('loginPass').addEventListener('keyup', e => { if (e.key === 'Enter') doLogin(); });
+
+    function logout() {
+      API.logout();
+      showLogin();
+    }
+
+    // ========== 导航 ==========
+    function navigateTo(page, params = {}) {
+      currentPage = page;
+      document.getElementById('pageTitle').textContent = pageTitles[page] || '';
+      // 高亮
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      const navItem = document.querySelector(`.nav-item[data-page="${page}"]`);
+      if (navItem) navItem.classList.add('active');
+      // 渲染
+      renderPage(page, params);
+    }
+
+    function renderPage(page, params = {}) {
+      const c = document.getElementById('pageContent');
+      c.innerHTML = '<div class="loading"><span class="spinner"></span>加载中...</div>';
+      setTimeout(() => {
+        try {
+          switch(page) {
+            case 'dashboard': renderDashboard(c); break;
+            case 'faults': renderFaultList(c, params); break;
+            case 'faultDetail': renderFaultDetail(c, params); break;
+            case 'devices': renderDeviceList(c, params); break;
+            case 'deviceDetail': renderDeviceDetail(c, params); break;
+            case 'inspections': renderInspectionList(c); break;
+            case 'maintenance': renderMaintenanceList(c); break;
+            case 'parts': renderPartsList(c, params); break;
+            case 'demands': renderDemandList(c, params); break;
+            case 'demandDetail': renderDemandDetail(c, params); break;
+            case 'knowledge': renderKnowledgeList(c, params); break;
+            case 'knowledgeDetail': renderKnowledgeDetail(c, params); break;
+            case 'statistics': renderStatistics(c); break;
+            case 'notifications': renderNotifications(c); break;
+            case 'users': renderUsersList(c, params); break;
+      case 'preSales': renderPreSalesList(c, params); break;
+      case 'preSalesDetail': renderPreSalesDetail(c, params); break;
+      case 'preSalesCreate': renderPreSalesCreate(c); break;
+      case 'preSalesConfig': renderPreSalesNodeConfig(c); break;
+      case 'deviceModels': renderDeviceModelsList(c); break;
+            case 'profile': renderProfile(c); break;
+            default: renderDashboard(c);
+          }
+        } catch(e) {
+          c.innerHTML = `<div class="empty-state"><p>加载失败: ${e.message}</p></div>`;
+        }
+      }, 50);
+    }
+
+    function toggleSidebar() {
+      const sb = document.getElementById('sidebar');
+      sb.style.width = sb.style.width === '60px' ? '220px' : '60px';
+    }
+
+    // ========== 主题 ==========
+    function applyTheme() {
+      const h = new Date().getHours();
+      const auto = (h >= 6 && h < 18) ? 'light' : 'dark';
+      const saved = localStorage.getItem('theme');
+      document.documentElement.setAttribute('data-theme', saved || auto);
+    }
+
+    function toggleTheme() {
+      const cur = document.documentElement.getAttribute('data-theme');
+      const next = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+    }
+
+    // ========== 字典 ==========
+    async function loadDicts() {
+      try { dicts = await API.get('/api/dicts', { silent:true }) || {}; } catch(e) { dicts = {}; }
+    }
+
+    // ========== Toast ==========
+    function showToast(msg, type='info') {
+      const c = document.getElementById('toastContainer');
+      const el = document.createElement('div');
+      el.className = `toast toast-${type}`;
+      el.textContent = msg;
+      c.appendChild(el);
+      setTimeout(() => { el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(()=>el.remove(),300); }, 3000);
+    }
+
+    // ========== 下拉渲染 ==========
+    function renderOptions(items, labelField='label', valueField='value') {
+      return items.map(i => `<option value="${i[valueField]}">${i[labelField]}</option>`).join('');
+    }
+
+    // ========== 同步状态 ==========
+    function startSync() {
+      checkOnlineStatus();
+    }
+
+    // ========== 页面：工作台 ==========
+    async function renderDashboard(container) {
+      try {
+        const d = await API.dashboard();
+        container.innerHTML = `
+          <div class="stat-grid">
+            <div class="stat-card">
+              <div class="label">故障工单总数</div>
+              <div class="value">${d.fault.total}</div>
+              <div class="sub">待处理:${d.fault.pending} | 处理中:${d.fault.processing}</div>
+            </div>
+            <div class="stat-card danger">
+              <div class="label">重大故障待处理</div>
+              <div class="value">${d.fault.major_pending}</div>
+              <div class="sub">紧急:${d.fault.urgent_pending}</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">设备总数</div>
+              <div class="value">${d.device.total}</div>
+              <div class="sub">在线:${d.device.online} | 离线:${d.device.offline} | 维修中:${d.device.maintenance}</div>
+            </div>
+            <div class="stat-card warning">
+              <div class="label">待巡检</div>
+              <div class="value">${d.pending_inspection}</div>
+              <div class="sub">3天内到期</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">待回访</div>
+              <div class="value">${d.pending_feedback}</div>
+              <div class="sub">已闭环7天内</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">未读消息</div>
+              <div class="value">${d.unread_notifications}</div>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="card">
+              <div class="card-title">⚡ 快捷入口</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                <button class="btn btn-outline" onclick="openCreateFaultModal()">➕ 新建工单</button>
+                <button class="btn btn-outline" onclick="navigateTo('devices')">📦 设备列表</button>
+                <button class="btn btn-outline" onclick="navigateTo('knowledge')">📚 搜索知识库</button>
+                <button class="btn btn-outline" onclick="openBindDeviceModal()">🔗 绑定设备</button>
+                <button class="btn btn-outline" onclick="navigateTo('inspections')">🔍 巡检管理</button>
+                <button class="btn btn-outline" onclick="navigateTo('notifications')">🔔 消息通知</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-title">📈 近7天故障趋势</div>
+              <div class="chart-container">
+                ${renderSimpleBarChart(d.recent_faults)}
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:16px;">
+            <div class="card-title">🕒 我的待办工单</div>
+            <div id="pendingFaultsList">加载中...</div>
+          </div>
+        `;
+        // 加载待办工单
+        loadPendingFaults();
+      } catch(e) {
+        container.innerHTML = `<div class="empty-state"><p>加载失败: ${e.message}</p></div>`;
+      }
+    }
+
+    async function loadPendingFaults() {
+      try {
+        const r = await API.faults.list({ page:1, page_size:5 });
+        const el = document.getElementById('pendingFaultsList');
+        if (!r.data || r.data.length === 0) {
+          el.innerHTML = '<div class="empty-state"><p>暂无待办工单</p></div>';
+          return;
+        }
+        el.innerHTML = `
+          <table class="data-table">
+            <thead><tr><th>工单号</th><th>设备编码</th><th>等级</th><th>状态</th><th>描述</th><th>操作</th></tr></thead>
+            <tbody>
+              ${r.data.map(f => `
+                <tr>
+                  <td><a href="#" onclick="navigateTo('faultDetail',{fault_no:'${f.fault_no}'});return false;" style="color:var(--primary);">${f.fault_no}</a></td>
+                  <td>${f.device_code}</td>
+                  <td>${getLevelTag(f.fault_level)}</td>
+                  <td>${getStatusTag(f.status)}</td>
+                  <td>${f.description.slice(0,30)}${f.description.length>30?'...':''}</td>
+                  <td><button class="btn btn-sm btn-primary" onclick="navigateTo('faultDetail',{fault_no:'${f.fault_no}'});">查看</button></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch(e) {
+        document.getElementById('pendingFaultsList').innerHTML = '<p style="color:var(--danger)">加载失败</p>';
+      }
+    }
+
+    function renderSimpleBarChart(data) {
+      if (!data || data.length === 0) return '<div class="empty-state"><p>暂无数据</p></div>';
+      const max = Math.max(...data.map(d => d.cnt), 1);
+      return `
+        <div class="chart-bar">
+          ${data.map(d => `<div class="chart-bar-item" style="height:${(d.cnt/max)*140}px;" title="${d.date}: ${d.cnt}单"></div>`).join('')}
+        </div>
+        <div class="chart-bar-label">
+          ${data.map(d => `<span>${d.date.slice(5)}</span>`).join('')}
+        </div>
+      `;
+    }
+
+    // ========== 页面：工单管理 ==========
+    async function renderFaultList(container, params = {}) {
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-title">🔧 工单管理</div>
+          <div class="filter-bar">
+            <div class="search-input">
+              <input type="text" class="form-control" id="faultSearch" placeholder="搜索工单号、描述、医院名称..." value="${params.keyword || ''}">
+            </div>
+            <select class="form-control" id="faultStatusFilter" onchange="reloadFaultList()">
+              <option value="">全部状态</option>
+              <option value="待处理">待处理</option>
+              <option value="处理中">处理中</option>
+              <option value="待复核">待复核</option>
+              <option value="已闭环">已闭环</option>
+            </select>
+            <select class="form-control" id="faultLevelFilter" onchange="reloadFaultList()">
+              <option value="">全部等级</option>
+              <option value="一般">一般</option>
+              <option value="紧急">紧急</option>
+              <option value="重大">重大</option>
+            </select>
+            <select class="form-control" id="faultProvinceFilter" onchange="reloadFaultList()">
+              <option value="">全部省份</option>
+              ${(dicts.provinces||[]).map(p=>`<option value="${p}">${p}</option>`).join('')}
+            </select>
+            <button class="btn btn-primary" onclick="reloadFaultList()">搜索</button>
+            <button class="btn btn-success" onclick="openCreateFaultModal()">➕ 新建工单</button>
+          </div>
+          <div id="faultTableWrap"></div>
+          <div class="pagination" id="faultPagination"></div>
+        </div>
+      `;
+      reloadFaultList(1);
+    }
+
+    async function reloadFaultList(page = 1) {
+      const params = {
+        page,
+        page_size: 20,
+        keyword: document.getElementById('faultSearch')?.value || '',
+        status: document.getElementById('faultStatusFilter')?.value || '',
+        level: document.getElementById('faultLevelFilter')?.value || '',
+        province: document.getElementById('faultProvinceFilter')?.value || '',
+      };
+      try {
+        const r = await API.faults.list(params);
+        const wrap = document.getElementById('faultTableWrap');
+        if (!r.data || r.data.length === 0) {
+          wrap.innerHTML = '<div class="empty-state"><p>暂无工单数据</p></div>';
+          return;
+        }
+        wrap.innerHTML = `
+          <table class="data-table">
+            <thead><tr>
+              <th>工单号</th><th>设备编码</th><th>故障等级</th><th>状态</th><th>描述</th><th>省份</th><th>联系人</th><th>创建时间</th><th>操作</th>
+            </tr></thead>
+            <tbody>
+              ${r.data.map(f => `
+                <tr>
+                  <td><a href="#" onclick="navigateTo('faultDetail',{fault_no:'${f.fault_no}'});return false;" style="color:var(--primary);">${f.fault_no}</a></td>
+                  <td>${f.device_code}</td>
+                  <td>${getLevelTag(f.fault_level)}</td>
+                  <td>${getStatusTag(f.status)}</td>
+                  <td>${f.description ? f.description.slice(0,30) + (f.description.length>30?'...':'') : '-'}</td>
+                  <td>${f.province||'-'}</td>
+                  <td>${f.contact_person||'-'}</td>
+                  <td>${formatDate(f.created_at)}</td>
+                  <td><button class="btn btn-sm btn-primary" onclick="navigateTo('faultDetail',{fault_no:'${f.fault_no}'});">查看</button></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+        renderPagination('faultPagination', r.total, r.page, r.page_size, reloadFaultList);
+      } catch(e) {
+        document.getElementById('faultTableWrap').innerHTML = `<p style="color:var(--danger)">加载失败: ${e.message}</p>`;
+      }
+    }
+
+    // ========== 工单详情 ==========
+    async function renderFaultDetail(container, params) {
+      const { fault_no } = params;
+      if (!fault_no) { container.innerHTML = '<div class="empty-state"><p>缺少工单号</p></div>'; return; }
+      try {
+        const data = await API.faults.detail(fault_no);
+        const f = data;
+        const isHQ = API.user?.role === 'headquarters';
+        const isEngineer = API.user?.role === 'engineer' && f.engineer_id === API.user?.id;
+        container.innerHTML = `
+          <div style="margin-bottom:16px;">
+            <button class="btn btn-sm btn-outline" onclick="navigateTo('faults')">← 返回列表</button>
+          </div>
+          <div class="grid-2">
+            <div class="card">
+              <div class="card-title">工单信息</div>
+              <p><strong>工单号：</strong>${f.fault_no}</p>
+              <p><strong>设备编码：</strong>${f.device_code}（${f.device_type||''}）</p>
+              <p><strong>故障等级：</strong>${getLevelTag(f.fault_level)}</p>
+              <p><strong>故障分类：</strong>${f.fault_category_l1||'-'} / ${f.fault_category_l2||'-'}</p>
+              <p><strong>状态：</strong>${getStatusTag(f.status)}</p>
+              <p><strong>描述：</strong>${f.description}</p>
+              <p><strong>联系人：</strong>${f.contact_person||'-'} ${f.contact_phone ? maskPhone(f.contact_phone) : ''}</p>
+              <p><strong>医院：</strong>${f.hospital_name||'-'}</p>
+              <p><strong>负责工程师：</strong>${f.engineer_name||'-'}</p>
+            </div>
+            <div class="card">
+              <div class="card-title">⏱ 流程时间轴</div>
+              <div class="timeline">
+                <div class="timeline-item">
+                  <div class="timeline-dot done"></div>
+                  <div class="timeline-title">报修登记</div>
+                  <div class="timeline-time">${formatDate(f.created_at)}</div>
+                </div>
+                <div class="timeline-item">
+                  <div class="timeline-dot ${f.investigation_time ? 'done' : (f.status!=='待处理'?'active':'')}"></div>
+                  <div class="timeline-title">现场排查</div>
+                  <div class="timeline-time">${formatDate(f.investigation_time)}</div>
+                  ${f.root_cause ? `<div class="timeline-content">根因: ${f.root_cause}</div>` : ''}
+                </div>
+                <div class="timeline-item">
+                  <div class="timeline-dot ${f.fix_completed_time ? 'done' : (f.status==='处理中'?'active':'')}"></div>
+                  <div class="timeline-title">故障修复</div>
+                  <div class="timeline-time">${formatDate(f.fix_completed_time)}</div>
+                  ${f.solution ? `<div class="timeline-content">${f.solution.slice(0,80)}</div>` : ''}
+                </div>
+                <div class="timeline-item">
+                  <div class="timeline-dot ${f.review_time ? 'done' : (f.status==='待复核'?'active':'')}"></div>
+                  <div class="timeline-title">复核闭环</div>
+                  <div class="timeline-time">${formatDate(f.review_time)}</div>
+                  ${f.review_result ? `<div class="timeline-content">复核结果: ${f.review_result}</div>` : ''}
+                </div>
+                <div class="timeline-item">
+                  <div class="timeline-dot ${f.feedback_time ? 'done' : ''}"></div>
+                  <div class="timeline-title">售后回访</div>
+                  <div class="timeline-time">${formatDate(f.feedback_time)}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 操作区 -->
+          <div class="card" id="faultActionCard">
+            <div class="card-title">⚡ 当前操作</div>
+            <div id="faultActionArea"></div>
+          </div>
+
+          <!-- 知识库参考 -->
+          <div class="card">
+            <div class="card-title">💡 参考知识库</div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">搜索历史解决方案，引用后可标记为"此知识帮助解决了本工单"</p>
+            <div style="display:flex;gap:8px;margin-bottom:12px;">
+              <input type="text" class="form-control" id="kbRefSearch" placeholder="输入关键词搜索解决方案..."
+                     onkeyup="if(event.key==='Enter')searchKbForFault('${f.fault_no}')" style="flex:1;">
+              <button class="btn btn-primary" onclick="searchKbForFault('${f.fault_no}')">🔍 搜索</button>
+            </div>
+            <div id="kbRefResults"></div>
+            <div id="kbRefHistory" style="margin-top:12px;"></div>
+          </div>
+
+          <!-- 附件 -->
+          ${data.attachments && data.attachments.length > 0 ? `
+          <div class="card">
+            <div class="card-title">📎 附件</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              ${data.attachments.map(a => `<span class="tag tag-info">${a.file_name}</span>`).join('')}
+            </div>
+          </div>` : ''}
+
+          <!-- 流程日志 -->
+          <div class="card">
+            <div class="card-title">📋 流程日志</div>
+            ${data.logs && data.logs.length > 0 ? `
+            <table class="data-table">
+              <thead><tr><th>节点</th><th>操作人</th><th>操作</th><th>详情</th><th>时间</th></tr></thead>
+              <tbody>
+                ${data.logs.map(l => `<tr><td>${l.node_name}</td><td>${l.operator_name||'-'}</td><td>${l.action}</td><td>${l.detail||'-'}</td><td>${formatDate(l.created_at)}</td></tr>`).join('')}
+              </tbody>
+            </table>` : '<p style="color:var(--text-muted);">暂无日志</p>'}
+          </div>
+        `;
+        renderFaultActions(f);
+        loadKbRefHistory(f.fault_no);
+      } catch(e) {
+        container.innerHTML = `<div class="empty-state"><p>加载失败: ${e.message}</p></div>`;
+      }
+    }
+
+    function renderFaultActions(f) {
+      const area = document.getElementById('faultActionArea');
+      if (!area) return;
+      let html = '';
+      const status = f.status;
+
+      if (status === '待处理') {
+        html = `
+          <p style="margin-bottom:12px;color:var(--warning);">当前状态：现场排查阶段</p>
+          <div class="form-group">
+            <label>排查结果</label>
+            <select class="form-control" id="investResult">
+              <option value="已复现">已复现</option>
+              <option value="未复现">未复现</option>
+              <option value="间歇性">间歇性</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>根因分析 <span class="required">*</span></label>
+            <textarea class="form-control" id="rootCause" placeholder="请输入根因分析（必填）"></textarea>
+          </div>
+          <button class="btn btn-primary" onclick="doInvestigate('${f.fault_no}')">提交排查结果</button>
+        `;
+      } else if (status === '处理中') {
+        html = `
+          <p style="margin-bottom:12px;color:var(--info);">当前状态：故障修复阶段</p>
+          <div class="form-group">
+            <label>解决方案 <span class="required">*</span>（至少20字）</label>
+            <textarea class="form-control" id="solution" placeholder="请输入详细的解决方案..." rows="4"></textarea>
+            <div class="form-hint">已输入 <span id="solutionCount">0</span>/20 字</div>
+          </div>
+          <div class="form-group">
+            <label>上传修复后照片（至少1张）</label>
+            <div class="upload-area" id="fixUploadArea">点击或拖拽上传照片</div>
+          </div>
+          <button class="btn btn-primary" onclick="doFix('${f.fault_no}')">提交修复</button>
+        `;
+        setTimeout(() => {
+          const ta = document.getElementById('solution');
+          if (ta) ta.addEventListener('input', () => document.getElementById('solutionCount').textContent = ta.value.length);
+        }, 100);
+      } else if (status === '待复核') {
+        html = `
+          <p style="margin-bottom:12px;color:var(--warning);">当前状态：等待复核</p>
+          <div class="form-group">
+            <label>复核结果 <span class="required">*</span></label>
+            <select class="form-control" id="reviewResult">
+              <option value="正常">正常（通过，闭环）</option>
+              <option value="异常">异常（回退至修复环节）</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>复核备注</label>
+            <textarea class="form-control" id="reviewNote" placeholder="请输入复核备注"></textarea>
+          </div>
+          <button class="btn btn-success" onclick="doReview('${f.fault_no}')">确认复核</button>
+        `;
+      } else if (status === '已闭环' && !f.feedback_completed) {
+        html = `
+          <p style="margin-bottom:12px;color:var(--success);">工单已闭环，请完成售后回访</p>
+          <div class="form-group">
+            <label>回访方式</label>
+            <select class="form-control" id="feedbackMethod">
+              <option value="电话">电话</option>
+              <option value="现场">现场</option>
+              <option value="微信">微信</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>服务响应速度（1-5星）</label>
+            <select class="form-control" id="score1">
+              ${[1,2,3,4,5].map(i=>`<option value="${i}">${i}星</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>故障解决质量（1-5星）</label>
+            <select class="form-control" id="score2">
+              ${[1,2,3,4,5].map(i=>`<option value="${i}">${i}星</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>满意度</label>
+            <select class="form-control" id="satisfaction">
+              <option value="非常满意">非常满意</option>
+              <option value="满意">满意</option>
+              <option value="一般">一般</option>
+              <option value="不满意">不满意</option>
+            </select>
+          </div>
+          <div class="form-group" id="feedbackNoteGroup" style="display:none;">
+            <label>不满意原因 <span class="required">*</span></label>
+            <textarea class="form-control" id="feedbackNote"></textarea>
+          </div>
+          <button class="btn btn-primary" onclick="doFeedback('${f.fault_no}')">提交回访</button>
+        `;
+        setTimeout(() => {
+          const sat = document.getElementById('satisfaction');
+          if (sat) sat.addEventListener('change', () => {
+            document.getElementById('feedbackNoteGroup').style.display = sat.value === '不满意' ? 'block' : 'none';
+          });
+        }, 100);
+      } else if (status === '已闭环' && f.feedback_completed) {
+        html = `<p style="color:var(--success);">✅ 工单已完成全部流程（含回访）</p>`;
+      } else {
+        html = `<p style="color:var(--text-muted);">当前状态无可用操作</p>`;
+      }
+      area.innerHTML = html;
+    }
+
+    // ========== 工单操作 ==========
+    async function doInvestigate(fault_no) {
+      const investigation_result = document.getElementById('investResult')?.value;
+      const root_cause = document.getElementById('rootCause')?.value;
+      if (!root_cause || root_cause.trim().length < 1) return showToast('请输入根因分析', 'error');
+      try {
+        await API.faults.investigate(fault_no, { investigation_result, root_cause });
+        showToast('排查结果已提交', 'success');
+        navigateTo('faultDetail', { fault_no });
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function doFix(fault_no) {
+      const solution = document.getElementById('solution')?.value;
+      if (!solution || solution.length < 20) return showToast('解决方案至少20个字', 'error');
+      try {
+        await API.faults.fix(fault_no, { solution });
+        showToast('修复方案已提交，等待复核', 'success');
+        navigateTo('faultDetail', { fault_no });
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function doReview(fault_no) {
+      const review_result = document.getElementById('reviewResult')?.value;
+      const review_note = document.getElementById('reviewNote')?.value;
+      if (!confirm(`确认复核结果：${review_result}？`)) return;
+      try {
+        await API.faults.review(fault_no, { review_result, review_note });
+        showToast('复核完成', 'success');
+        navigateTo('faultDetail', { fault_no });
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function doFeedback(fault_no) {
+      const feedback_method = document.getElementById('feedbackMethod')?.value;
+      const score_1 = parseInt(document.getElementById('score1')?.value || 0);
+      const score_2 = parseInt(document.getElementById('score2')?.value || 0);
+      const satisfaction = document.getElementById('satisfaction')?.value;
+      const feedback_note = document.getElementById('feedbackNote')?.value;
+      if (satisfaction === '不满意' && (!feedback_note || feedback_note.trim().length < 1)) return showToast('请填写不满意原因', 'error');
+      try {
+        await API.faults.feedback(fault_no, { feedback_method, score_1, score_2, score_3: 0, satisfaction, feedback_note });
+        showToast('回访已提交', 'success');
+        navigateTo('faultDetail', { fault_no });
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // ========== 新建工单弹窗 ==========
+    async function openCreateFaultModal() {
+      _selectedParts = [];
+      Modal.show(`
+        <div class="form-group">
+          <label>设备编码 <span class="required">*</span></label>
+          <input type="text" class="form-control" id="newFaultDeviceCode" placeholder="扫描或输入设备编码">
+        </div>
+        <div class="form-group">
+          <label>故障分类 <span class="required">*</span></label>
+          <select class="form-control" id="newFaultCat1">
+            <option value="">-- 一级分类 --</option>
+            ${(dicts.fault_categories_l1||[]).map(c=>`<option value="${c}">${c}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>故障描述 <span class="required">*</span>（至少10字）</label>
+          <textarea class="form-control" id="newFaultDesc" placeholder="请详细描述故障现象..." rows="3"></textarea>
+          <div class="form-hint">已输入 <span id="newFaultDescCount">0</span>/10 字</div>
+        </div>
+        <div class="form-group">
+          <label>联系人 <span class="required">*</span></label>
+          <input type="text" class="form-control" id="newFaultContact" placeholder="联系人姓名">
+        </div>
+        <div class="form-group">
+          <label>联系电话 <span class="required">*</span></label>
+          <input type="text" class="form-control" id="newFaultPhone" placeholder="11位手机号" maxlength="11">
+        </div>
+        <div class="form-group">
+          <label>关联配件</label>
+          <div style="border:1px solid var(--border);border-radius:6px;padding:12px;">
+            <div id="selectedPartsWrap" style="margin-bottom:8px;"><p style="color:var(--text-muted);font-size:13px;">暂未选择配件</p></div>
+            <button class="btn btn-sm btn-outline" type="button" onclick="openAddPartToFaultModal()">➕ 添加配件</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>上传照片（至少1张，最多9张）</label>
+          <div class="upload-area">点击上传现场照片</div>
+        </div>
+      `, '新建故障工单', { footer: '<div class="modal-footer"><button class="btn btn-outline" onclick="Modal.hide()">取消</button><button class="btn btn-primary" onclick="doCreateFault()">提交工单</button></div>' });
+
+      setTimeout(() => {
+        const ta = document.getElementById('newFaultDesc');
+        if (ta) ta.addEventListener('input', () => {
+          document.getElementById('newFaultDescCount').textContent = ta.value.length;
+        });
+      }, 100);
+    }
+
+    async function doCreateFault() {
+      const device_code = document.getElementById('newFaultDeviceCode')?.value.trim();
+      const fault_category_l1 = document.getElementById('newFaultCat1')?.value;
+      const description = document.getElementById('newFaultDesc')?.value.trim();
+      const contact_person = document.getElementById('newFaultContact')?.value.trim();
+      const contact_phone = document.getElementById('newFaultPhone')?.value.trim();
+      if (!device_code || !fault_category_l1 || !description || !contact_person || !contact_phone) return showToast('请填写所有必填项', 'error');
+      if (description.length < 10) return showToast('故障描述至少10个字', 'error');
+      if (!/^1\d{10}$/.test(contact_phone)) return showToast('请输入正确的手机号', 'error');
+      try {
+        const r = await API.faults.create({ device_code, fault_category_l1, description, contact_person, contact_phone });
+        // 关联配件
+        if (_selectedParts.length > 0) {
+          for (const sp of _selectedParts) {
+            await API.post(`/api/parts/faults/${r.fault_no}/parts`, {
+              part_id: sp.part_id, quantity: sp.quantity, note: description.slice(0, 100)
+            });
+          }
+        }
+        Modal.hide();
+        showToast(`工单已创建：${r.fault_no}${_selectedParts.length > 0 ? '，关联配件' + _selectedParts.length + '项' : ''}`);
+        navigateTo('faults');
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // ========== 设备列表 ==========
+    async function renderDeviceList(container, params = {}) {
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-title">📦 设备管理</div>
+          <div class="filter-bar">
+            <div class="search-input">
+              <input type="text" class="form-control" id="deviceSearch" placeholder="搜索设备编码、序列号、医院名称...">
+            </div>
+            <select class="form-control" id="deviceStatusFilter" onchange="reloadDeviceList()">
+              <option value="">全部状态</option>
+              <option value="在线">在线</option>
+              <option value="离线">离线</option>
+              <option value="维修中">维修中</option>
+              <option value="已报废">已报废</option>
+            </select>
+            <select class="form-control" id="deviceProvinceFilter" onchange="reloadDeviceList()">
+              <option value="">全部省份</option>
+              ${(dicts.provinces||[]).map(p=>`<option value="${p}">${p}</option>`).join('')}
+            </select>
+            <button class="btn btn-primary" onclick="reloadDeviceList()">搜索</button>
+            ${(API.user?.role === 'engineer' || API.user?.role === 'headquarters') ? '<button class="btn btn-success" onclick="openBindDeviceModal()">🔗 绑定设备</button>' : ''}
+          </div>
+          <div id="deviceTableWrap"></div>
+          <div class="pagination" id="devicePagination"></div>
+        </div>
+      `;
+      reloadDeviceList(1);
+    }
+
+    async function reloadDeviceList(page = 1) {
+      const params = {
+        page, page_size: 20,
+        keyword: document.getElementById('deviceSearch')?.value || '',
+        status: document.getElementById('deviceStatusFilter')?.value || '',
+        province: document.getElementById('deviceProvinceFilter')?.value || '',
+      };
+      try {
+        const r = await API.devices.list(params);
+        const wrap = document.getElementById('deviceTableWrap');
+        if (!r.data || r.data.length === 0) { wrap.innerHTML = '<div class="empty-state"><p>暂无设备数据</p></div>'; return; }
+        wrap.innerHTML = `
+          <table class="data-table">
+            <thead><tr><th>设备编码</th><th>类型</th><th>序列号</th><th>状态</th><th>医院</th><th>省份</th><th>安装位置</th><th>操作</th></tr></thead>
+            <tbody>
+              ${r.data.map(d => `
+                <tr>
+                  <td><a href="#" onclick="navigateTo('deviceDetail',{device_code:'${d.device_code}'});return false;" style="color:var(--primary);">${d.device_code}</a></td>
+                  <td>${d.device_type||'-'}</td>
+                  <td>${d.serial_number||'-'}</td>
+                  <td>${getStatusTag(d.status)}</td>
+                  <td>${d.hospital_name||'-'}</td>
+                  <td>${d.province||'-'}</td>
+                  <td>${d.install_location||'-'}</td>
+                  <td><button class="btn btn-sm btn-primary" onclick="navigateTo('deviceDetail',{device_code:'${d.device_code}'});">查看</button></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+        renderPagination('devicePagination', r.total, r.page, r.page_size, reloadDeviceList);
+      } catch(e) {
+        document.getElementById('deviceTableWrap').innerHTML = `<p style="color:var(--danger)">加载失败: ${e.message}</p>`;
+      }
+    }
+
+    // ========== 设备详情 ==========
+    async function renderDeviceDetail(container, params) {
+      const { device_code } = params;
+      if (!device_code) { container.innerHTML = '<div class="empty-state"><p>缺少设备编码</p></div>'; return; }
+      try {
+        const data = await API.devices.detail(device_code);
+        const d = data;
+        container.innerHTML = `
+          <div style="margin-bottom:16px;">
+            <button class="btn btn-sm btn-outline" onclick="navigateTo('devices')">← 返回列表</button>
+          </div>
+          <div class="grid-2">
+            <div class="card">
+              <div class="card-title">设备信息</div>
+              <p><strong>设备编码：</strong>${d.device_code}</p>
+              <p><strong>设备类型：</strong>${d.device_type||'-'}</p>
+              <p><strong>序列号：</strong>${d.serial_number||'-'}</p>
+              <p><strong>状态：</strong>${getStatusTag(d.status)}</p>
+              <p><strong>安装位置：</strong>${d.install_location||'-'}</p>
+              <p><strong>离墙距离：</strong>${d.wall_distance_cm!=null ? d.wall_distance_cm+'cm' : '-'}</p>
+              <p><strong>IP地址：</strong>${d.ip_address||'-'}</p>
+              <p><strong>固件版本：</strong>${d.firmware_version||'-'}</p>
+              <p><strong>应用版本：</strong>${d.app_version||'-'}</p>
+              <p><strong>安装日期：</strong>${d.install_date||'-'}</p>
+              <p><strong>医院：</strong>${d.hospital_name||'-'}（${d.province||''}${d.city||''}）</p>
+            </div>
+            <div class="card">
+              <div class="card-title">📊 关联数据</div>
+              <p><strong>故障记录：</strong>${d.faults?.length || 0} 条</p>
+              <p><strong>巡检记录：</strong>${data.inspections?.length || 0} 条</p>
+              <p><strong>维保记录：</strong>${data.maintenance?.length || 0} 条</p>
+              <div style="margin-top:16px;">
+                <label>变更设备状态：</label>
+                <select class="form-control" id="deviceStatusChange" style="margin-top:8px;margin-bottom:8px;">
+                  <option value="在线">在线</option>
+                  <option value="离线">离线</option>
+                  <option value="维修中">维修中</option>
+                  <option value="已报废">已报废</option>
+                </select>
+                <button class="btn btn-warning btn-sm" onclick="doChangeDeviceStatus('${device_code}')">确认变更</button>
+              </div>
+            </div>
+          </div>
+
+          ${d.faults && d.faults.length > 0 ? `
+          <div class="card" style="margin-top:16px;">
+            <div class="card-title">📋 故障记录</div>
+            <table class="data-table">
+              <thead><tr><th>工单号</th><th>等级</th><th>状态</th><th>创建时间</th></tr></thead>
+              <tbody>
+                ${d.faults.slice(0,5).map(f => `<tr><td>${f.fault_no}</td><td>${getLevelTag(f.fault_level)}</td><td>${getStatusTag(f.status)}</td><td>${formatDate(f.created_at)}</td></tr>`).join('')}
+              </tbody>
+            </table>
+          </div>` : ''}
+        `;
+        setTimeout(() => {
+          const sel = document.getElementById('deviceStatusChange');
+          if (sel) sel.value = d.status || '在线';
+        }, 100);
+      } catch(e) {
+        container.innerHTML = `<div class="empty-state"><p>加载失败: ${e.message}</p></div>`;
+      }
+    }
+
+    async function doChangeDeviceStatus(device_code) {
+      const status = document.getElementById('deviceStatusChange')?.value;
+      if (!confirm(`确认将设备 ${device_code} 状态变更为「${status}」？`)) return;
+      try {
+        await API.devices.updateStatus(device_code, status);
+        showToast('设备状态已更新', 'success');
+        navigateTo('deviceDetail', { device_code });
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // ========== 绑定设备弹窗 ==========
+    async function openBindDeviceModal() {
+      let hospitals = [], models = [];
+      try { const r = await API.hospitals.list(); hospitals = r.data || []; } catch(e) {}
+      try { const r = await API.get('/api/device-models?status=active&page_size=50'); models = r.data || []; } catch(e) {}
+      Modal.show(`
+        <div class="form-group">
+          <label>设备编码 <span class="required">*</span></label>
+          <input type="text" class="form-control" id="bindDeviceCode" placeholder="扫描或输入设备编码">
+        </div>
+        <div class="form-group">
+          <label>设备类型 <span class="required">*</span></label>
+          <select class="form-control" id="bindDeviceType">
+            <option value="">-- 选择型号 --</option>
+            ${models.map(m => `<option value="${m.model_code}">${m.model_code}（${m.device_type}）</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>序列号</label>
+          <input type="text" class="form-control" id="bindSerial" placeholder="出厂序列号">
+        </div>
+        <div class="form-group">
+          <label>医院编码 <span class="required">*</span></label>
+          <select class="form-control" id="bindHospitalCode">
+            <option value="">-- 选择医院 --</option>
+            ${hospitals.map(h => `<option value="${h.hospital_code}">${h.hospital_name}（${h.hospital_code}）</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>安装位置</label>
+          <input type="text" class="form-control" id="bindLocation" placeholder="楼层/科室">
+        </div>
+        <div class="form-group">
+          <label>离墙距离（cm）</label>
+          <input type="number" step="0.1" class="form-control" id="bindWallDist" placeholder="≤10cm">
+        </div>
+        <div class="form-group">
+          <label>IP地址</label>
+          <input type="text" class="form-control" id="bindIP" placeholder="192.168.x.x">
+        </div>
+      `, '绑定设备', { footer: '<div class="modal-footer"><button class="btn btn-outline" onclick="Modal.hide()">取消</button><button class="btn btn-primary" onclick="doBindDevice()">确认绑定</button></div>' });
+    }
+
+    async function doBindDevice() {
+      const device_code = document.getElementById('bindDeviceCode')?.value.trim();
+      const device_type = document.getElementById('bindDeviceType')?.value;
+      const hospital_code = document.getElementById('bindHospitalCode')?.value;
+      if (!device_code || !device_type || !hospital_code) return showToast('请填写必填项', 'error');
+      try {
+        await API.devices.bind({ device_code, device_type, hospital_code, serial_number:document.getElementById('bindSerial')?.value||'', install_location:document.getElementById('bindLocation')?.value||'', wall_distance_cm:document.getElementById('bindWallDist')?.value||null, ip_address:document.getElementById('bindIP')?.value||'' });
+        Modal.hide();
+        showToast(`设备 ${device_code} 已绑定`, 'success');
+        navigateTo('devices');
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // ========== 需求管理 ==========
+    async function renderDemandList(container, params = {}) {
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-title">💡 需求管理</div>
+          <div class="filter-bar">
+            <div class="search-input">
+              <input type="text" class="form-control" id="demandSearch" placeholder="搜索需求编号、标题...">
+            </div>
+            <select class="form-control" id="demandStatusFilter" onchange="reloadDemandList()">
+              <option value="">全部状态</option>
+              <option value="待评估">待评估</option>
+              <option value="已采纳">已采纳</option>
+              <option value="已驳回">已驳回</option>
+              <option value="已上线">已上线</option>
+            </select>
+            <button class="btn btn-primary" onclick="reloadDemandList()">搜索</button>
+            <button class="btn btn-success" onclick="openCreateDemandModal()">➕ 新建需求</button>
+          </div>
+          <div id="demandTableWrap"></div>
+          <div class="pagination" id="demandPagination"></div>
+        </div>
+      `;
+      reloadDemandList(1);
+    }
+
+    async function reloadDemandList(page = 1) {
+      const params = {
+        page, page_size: 20,
+        keyword: document.getElementById('demandSearch')?.value || '',
+        status: document.getElementById('demandStatusFilter')?.value || '',
+      };
+      try {
+        const r = await API.demands.list(params);
+        const wrap = document.getElementById('demandTableWrap');
+        if (!r.data || r.data.length === 0) { wrap.innerHTML = '<div class="empty-state"><p>暂无需求数据</p></div>'; return; }
+        wrap.innerHTML = `
+          <table class="data-table">
+            <thead><tr><th>需求编号</th><th>标题</th><th>状态</th><th>优先级</th><th>提交人</th><th>医院</th><th>创建时间</th><th>操作</th></tr></thead>
+            <tbody>
+              ${r.data.map(d => `
+                <tr>
+                  <td><a href="#" onclick="navigateTo('demandDetail',{demand_no:'${d.demand_no}'});return false;" style="color:var(--primary);">${d.demand_no}</a></td>
+                  <td>${d.title}</td>
+                  <td>${getStatusTag(d.status)}</td>
+                  <td>${d.priority||'-'}</td>
+                  <td>${d.submitter_name||'-'}</td>
+                  <td>${d.hospital_name||'-'}</td>
+                  <td>${formatDate(d.created_at)}</td>
+                  <td><button class="btn btn-sm btn-primary" onclick="navigateTo('demandDetail',{demand_no:'${d.demand_no}'});">查看</button></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+        renderPagination('demandPagination', r.total, r.page, r.page_size, reloadDemandList);
+      } catch(e) {
+        document.getElementById('demandTableWrap').innerHTML = `<p style="color:var(--danger)">加载失败: ${e.message}</p>`;
+      }
+    }
+
+    async function openCreateDemandModal() {
+      let hospitals = [];
+      try { const r = await API.hospitals.list(); hospitals = r.data || []; } catch(e) {}
+      Modal.show(`
+        <div class="form-group">
+          <label>需求标题 <span class="required">*</span></label>
+          <input type="text" class="form-control" id="newDemandTitle" placeholder="请输入需求标题">
+        </div>
+        <div class="form-group">
+          <label>需求描述 <span class="required">*</span>（至少20字）</label>
+          <textarea class="form-control" id="newDemandDesc" rows="4" placeholder="详细描述需求..."></textarea>
+          <div class="form-hint">已输入 <span id="newDemandDescCount">0</span>/20 字</div>
+        </div>
+        <div class="form-group">
+          <label>来源医院</label>
+          <select class="form-control" id="newDemandHospital">
+            <option value="">-- 选择医院 --</option>
+            ${hospitals.map(h => `<option value="${h.hospital_code}">${h.hospital_name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>优先级</label>
+          <select class="form-control" id="newDemandPriority">
+            <option value="中">中</option>
+            <option value="高">高</option>
+            <option value="低">低</option>
+          </select>
+        </div>
+      `, '新建需求', { footer: '<div class="modal-footer"><button class="btn btn-outline" onclick="Modal.hide()">取消</button><button class="btn btn-primary" onclick="doCreateDemand()">提交需求</button></div>' });
+
+      setTimeout(() => {
+        const ta = document.getElementById('newDemandDesc');
+        if (ta) ta.addEventListener('input', () => {
+          document.getElementById('newDemandDescCount').textContent = ta.value.length;
+        });
+      }, 100);
+    }
+
+    async function doCreateDemand() {
+      const title = document.getElementById('newDemandTitle')?.value.trim();
+      const description = document.getElementById('newDemandDesc')?.value.trim();
+      const source_hospital_code = document.getElementById('newDemandHospital')?.value;
+      const priority = document.getElementById('newDemandPriority')?.value;
+      if (!title || !description) return showToast('请填写标题和描述', 'error');
+      if (description.length < 20) return showToast('需求描述至少20字', 'error');
+      try {
+        const r = await API.demands.create({ title, description, source_hospital_code, priority });
+        Modal.hide();
+        showToast(`需求已提交：${r.demand_no}`, 'success');
+        navigateTo('demands');
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function renderDemandDetail(container, params) {
+      // 简化版详情
+      const { demand_no } = params;
+      if (!demand_no) return;
+      try {
+        const r = await API.get(`/api/demands?keyword=${demand_no}`);
+        const d = r.data?.[0];
+        if (!d) { container.innerHTML = '<div class="empty-state"><p>需求不存在</p></div>'; return; }
+        container.innerHTML = `
+          <div style="margin-bottom:16px;">
+            <button class="btn btn-sm btn-outline" onclick="navigateTo('demands')">← 返回列表</button>
+          </div>
+          <div class="card">
+            <div class="card-title">需求详情：${d.demand_no}</div>
+            <p><strong>标题：</strong>${d.title}</p>
+            <p><strong>描述：</strong>${d.description}</p>
+            <p><strong>状态：</strong>${getStatusTag(d.status)}</p>
+            <p><strong>优先级：</strong>${d.priority||'-'}</p>
+            <p><strong>提交人：</strong>${d.submitter_name||'-'}</p>
+            <p><strong>医院：</strong>${d.hospital_name||'-'}</p>
+            <p><strong>创建时间：</strong>${formatDate(d.created_at)}</p>
+          </div>
+          ${API.user?.role==='headquarters' && d.status==='待评估' ? `
+          <div class="card">
+            <div class="card-title">⚡ 需求评估</div>
+            <div class="form-group">
+              <label>评估结论 <span class="required">*</span></label>
+              <select class="form-control" id="evalResult">
+                <option value="已采纳">已采纳</option>
+                <option value="已驳回">已驳回</option>
+              </select>
+            </div>
+            <div class="form-group" id="adoptGroup">
+              <label>预计上线时间 <span class="required">*</span></label>
+              <input type="date" class="form-control" id="evalLaunchDate">
+            </div>
+            <div class="form-group" id="rejectGroup" style="display:none;">
+              <label>驳回原因 <span class="required">*</span>（至少10字）</label>
+              <textarea class="form-control" id="evalRejectReason"></textarea>
+            </div>
+            <div class="form-group">
+              <label>评估备注</label>
+              <textarea class="form-control" id="evalNote"></textarea>
+            </div>
+            <button class="btn btn-primary" onclick="doEvaluate('${demand_no}')">提交评估</button>
+          </div>` : ''}
+        `;
+        setTimeout(() => {
+          const er = document.getElementById('evalResult');
+          if (er) er.addEventListener('change', () => {
+            document.getElementById('adoptGroup').style.display = er.value==='已采纳'?'block':'none';
+            document.getElementById('rejectGroup').style.display = er.value==='已驳回'?'block':'none';
+          });
+        }, 100);
+      } catch(e) {
+        container.innerHTML = `<div class="empty-state"><p>加载失败: ${e.message}</p></div>`;
+      }
+    }
+
+    async function doEvaluate(demand_no) {
+      const eval_result = document.getElementById('evalResult')?.value;
+      const reject_reason = document.getElementById('evalRejectReason')?.value;
+      const estimated_launch_date = document.getElementById('evalLaunchDate')?.value;
+      const eval_note = document.getElementById('evalNote')?.value;
+      if (eval_result === '已采纳' && !estimated_launch_date) return showToast('请填写预计上线时间', 'error');
+      if (eval_result === '已驳回' && (!reject_reason || reject_reason.length < 10)) return showToast('驳回原因至少10字', 'error');
+      try {
+        await API.demands.evaluate(demand_no, { eval_result, reject_reason, estimated_launch_date, schedule_note:eval_note, eval_note });
+        showToast('评估已提交', 'success');
+        navigateTo('demandDetail', { demand_no });
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // ========== 知识库 ==========
+    async function renderKnowledgeList(container, params = {}) {
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-title">📚 知识库</div>
+          <div class="filter-bar">
+            <div class="search-input">
+              <input type="text" class="form-control" id="kbSearch" placeholder="搜索知识库（标题、描述、解决方案）...">
+            </div>
+            <select class="form-control" id="kbCategoryFilter" onchange="reloadKnowledgeList()">
+              <option value="">全部分类</option>
+              ${(dicts.fault_categories_l1||[]).map(c=>`<option value="${c}">${c}</option>`).join('')}
+            </select>
+            <button class="btn btn-primary" onclick="reloadKnowledgeList()">🔍 搜索</button>
+            ${API.user?.role==='headquarters' ? '<button class="btn btn-success" onclick="openCreateKbModal()">➕ 新增条目</button>' : ''}
+          </div>
+          <div id="kbListWrap"></div>
+          <div class="pagination" id="kbPagination"></div>
+        </div>
+      `;
+      // 实时搜索
+      const searchInput = document.getElementById('kbSearch');
+      if (searchInput) {
+        let debounce;
+        searchInput.addEventListener('input', () => {
+          clearTimeout(debounce);
+          debounce = setTimeout(() => reloadKnowledgeList(1), 500);
+        });
+      }
+      reloadKnowledgeList(1);
+    }
+
+    async function reloadKnowledgeList(page = 1) {
+      const keyword = document.getElementById('kbSearch')?.value || '';
+      const category = document.getElementById('kbCategoryFilter')?.value || '';
+      try {
+        const r = await API.knowledge.list({ keyword, category, page, page_size:20 });
+        const wrap = document.getElementById('kbListWrap');
+        if (!r.data || r.data.length === 0) { wrap.innerHTML = '<div class="empty-state"><p>暂无知识库条目，请尝试搜索</p></div>'; return; }
+        wrap.innerHTML = `
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;">
+            ${r.data.map(k => `
+              <div class="card" style="margin-bottom:0;cursor:pointer;" onclick="navigateTo('knowledgeDetail',{id:${k.id}})">
+                <div style="font-weight:600;color:var(--primary);margin-bottom:8px;">${k.title}</div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">${getLevelTag(k.fault_category_l1)} ${k.applicable_models||''}</div>
+                <div style="font-size:13px;color:var(--text);margin-bottom:8px;line-height:1.5;">${(k.description_summary||k.solution||'').slice(0,80)}...</div>
+                <div style="font-size:11px;color:var(--text-muted);">👁 ${k.view_count||0} 次查看 · 🔗 ${k.reference_count||0} 次引用</div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+        renderPagination('kbPagination', r.total, r.page, r.page_size, reloadKnowledgeList);
+      } catch(e) {
+        document.getElementById('kbListWrap').innerHTML = `<p style="color:var(--danger)">加载失败: ${e.message}</p>`;
+      }
+    }
+
+    async function renderKnowledgeDetail(container, params) {
+      const { id } = params;
+      if (!id) return;
+      try {
+        const k = await API.knowledge.detail(id);
+        container.innerHTML = `
+          <div style="margin-bottom:16px;">
+            <button class="btn btn-sm btn-outline" onclick="navigateTo('knowledge')">← 返回列表</button>
+          </div>
+          <div class="card">
+            <div class="card-title">📖 ${k.title}</div>
+            <p><strong>分类：</strong>${getLevelTag(k.fault_category_l1)} ${k.fault_category_l2||''}</p>
+            <p><strong>适用型号：</strong>${k.applicable_models||'通用'}</p>
+            <p><strong>作者：</strong>${k.author_name||'-'} &nbsp;·&nbsp; <strong>更新时间：</strong>${formatDate(k.updated_at)}</p>
+            <hr style="margin:16px 0;border:none;border-top:1px solid var(--border);">
+            <div>
+              <h4>解决方案：</h4>
+              <div style="white-space:pre-wrap;line-height:1.8;margin-top:8px;">${k.solution}</div>
+            </div>
+            <div style="margin-top:16px;font-size:12px;color:var(--text-muted);">👁 ${k.view_count} 次查看 · 🔗 ${k.reference_count} 次引用</div>
+          </div>
+        `;
+      } catch(e) {
+        container.innerHTML = `<div class="empty-state"><p>加载失败: ${e.message}</p></div>`;
+      }
+    }
+
+    async function openCreateKbModal() {
+      Modal.show(`
+        <div class="form-group">
+          <label>分类 <span class="required">*</span></label>
+          <select class="form-control" id="newKbCat1">
+            <option value="">-- 一级分类 --</option>
+            ${(dicts.fault_categories_l1||[]).map(c=>`<option value="${c}">${c}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>标题 <span class="required">*</span></label>
+          <input type="text" class="form-control" id="newKbTitle" placeholder="知识库条目标题">
+        </div>
+        <div class="form-group">
+          <label>描述摘要</label>
+          <textarea class="form-control" id="newKbDesc" rows="2" placeholder="简要描述问题"></textarea>
+        </div>
+        <div class="form-group">
+          <label>解决方案 <span class="required">*</span></label>
+          <textarea class="form-control" id="newKbSolution" rows="6" placeholder="详细解决方案..."></textarea>
+        </div>
+      `, '新增知识库条目', { footer: '<div class="modal-footer"><button class="btn btn-outline" onclick="Modal.hide()">取消</button><button class="btn btn-primary" onclick="doCreateKb()">提交</button></div>' });
+    }
+
+    async function doCreateKb() {
+      const fault_category_l1 = document.getElementById('newKbCat1')?.value;
+      const title = document.getElementById('newKbTitle')?.value.trim();
+      const solution = document.getElementById('newKbSolution')?.value.trim();
+      if (!fault_category_l1 || !title || !solution) return showToast('请填写必填项', 'error');
+      try {
+        await API.knowledge.create({ fault_category_l1, title, description_summary:document.getElementById('newKbDesc')?.value||'', solution });
+        Modal.hide();
+        showToast('知识库条目已创建', 'success');
+        navigateTo('knowledge');
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // ========== 故障工单 - 知识库参考 ==========
+    async function searchKbForFault(fault_no) {
+      const q = document.getElementById('kbRefSearch')?.value.trim();
+      if (!q || q.length < 2) { showToast('请输入至少2个字符', 'warn'); return; }
+      const wrap = document.getElementById('kbRefResults');
+      wrap.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-muted);">🔍 搜索中...</div>';
+      try {
+        const r = await API.knowledge.search(q, fault_no);
+        if (!r.data || r.data.length === 0) {
+          wrap.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">未找到相关解决方案</p>';
+          return;
+        }
+        wrap.innerHTML = '<div style="display:flex;flex-direction:column;gap:10px;">' +
+          r.data.map(k => `
+            <div class="card" style="margin-bottom:0;padding:12px;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+                <div style="flex:1;">
+                  <div style="font-weight:600;color:var(--primary);margin-bottom:4px;">${k.title}</div>
+                  <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">${getLevelTag(k.fault_category_l1)} · 👁 ${k.view_count||0}次 · 🔗 ${k.reference_count||0}次引用</div>
+                  <div style="font-size:12px;color:var(--text);line-height:1.5;">${(k.description_summary||'').slice(0,100)}${(k.description_summary||'').length > 100 ? '...' : ''}</div>
+                </div>
+                <button class="btn btn-sm btn-outline" id="kbRefBtn_${k.id}"
+                        onclick="doReferenceKb(${k.id},'${fault_no}',this)"
+                        style="white-space:nowrap;flex-shrink:0;">📌 引用此方案</button>
+              </div>
+            </div>`).join('') + '</div>';
+      } catch(e) {
+        wrap.innerHTML = '<p style="color:var(--danger);font-size:13px;">' + (e.message || '搜索失败') + '</p>';
+      }
+    }
+
+    async function doReferenceKb(kbId, fault_no, btnEl) {
+      try {
+        await API.knowledge.reference(kbId, fault_no);
+        if (btnEl) {
+          btnEl.textContent = '✅ 已引用';
+          btnEl.className = 'btn btn-sm btn-success';
+          btnEl.disabled = true;
+        }
+        showToast('已记录引用', 'success');
+        loadKbRefHistory(fault_no);
+      } catch(e) {
+        showToast('引用失败: ' + e.message, 'error');
+      }
+    }
+
+    async function loadKbRefHistory(fault_no) {
+      const wrap = document.getElementById('kbRefHistory');
+      if (!wrap) return;
+      try {
+        const r = await API.knowledge.faultReferences(fault_no);
+        if (!r.data || r.data.length === 0) {
+          wrap.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">暂无引用记录</p>';
+          return;
+        }
+        wrap.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;font-weight:600;">已引用知识（' + r.data.length + '条）：</div>' +
+          '<div style="display:flex;flex-direction:column;gap:6px;">' +
+          r.data.map(ref => `
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg-secondary);border-radius:6px;font-size:13px;">
+              <span style="color:var(--success);">✅</span>
+              <span style="flex:1;color:var(--text);">${ref.title || '知识#'+ref.knowledge_id}</span>
+              <span style="font-size:11px;color:var(--text-muted);">${formatDate(ref.created_at)}</span>
+            </div>`).join('') + '</div>';
+      } catch(e) {
+        // 静默失败
+      }
+    }
+
+    // HQ helper
+    function isHQ() { return API.user && API.user.role === 'headquarters'; }
+
+    async function renderInspectionList(container) {
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-title">🔍 巡检管理</div>
+          <div style="margin-bottom:16px;">
+            <button class="btn btn-success" onclick="openCreateInspectionPlanModal()">➕ 新建巡检计划</button>
+          </div>
+          <div id="inspectionPlanWrap"></div>
+        </div>
+        <div class="card" style="margin-top:16px;">
+          <div class="card-title">📋 巡检记录</div>
+          <div id="inspectionRecordWrap"></div>
+        </div>
+      `;
+      loadInspectionPlans();
+      loadInspectionRecords();
+    }
+
+    async function loadInspectionPlans() {
+      try {
+        const r = await API.inspections.plans();
+        const wrap = document.getElementById('inspectionPlanWrap');
+        if (!r.data || r.data.length === 0) {
+          wrap.innerHTML = '<div class="empty-state"><p>暂无巡检计划，请点击上方按钮创建</p></div>';
+          return;
+        }
+        const hq = isHQ();
+        wrap.innerHTML = `
+          <table class="data-table">
+            <thead><tr>
+              <th>计划名称</th><th>医院</th>${hq ? '<th>负责人</th>' : ''}<th>周期</th><th>下次巡检</th><th>状态</th><th>记录数</th><th>操作</th></tr></thead>
+            <tbody>
+              ${r.data.map(p => {
+                const safeName = (p.plan_name||'').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                return `
+                <tr>
+                  <td>${p.plan_name}</td>
+                  <td>${p.hospital_name||'-'}</td>
+                  ${hq ? '<td>' + (p.engineer_name||'-') + '</td>' : ''}
+                  <td>${p.cycle}</td>
+                  <td>${p.next_inspection_date||'-'}</td>
+                  <td>${getStatusTag(p.status)}</td>
+                  <td>${p.record_count||0}</td>
+                  <td>
+                    <button class="btn btn-sm btn-primary" onclick="openInspectionRecordModal(${p.id},'${safeName}')">🔍 执行巡检</button>
+                    ${hq 
+                      ? (p.status === '进行中' ? '<button class="btn btn-sm btn-outline" onclick="togglePlanStatus(' + p.id + ',\\'暂停\\')">⏸ 暂停</button> ' : '')
+                        + (p.status === '已暂停' ? '<button class="btn btn-sm btn-outline" onclick="togglePlanStatus(' + p.id + ',\\'进行中\\')">▶ 恢复</button> ' : '')
+                        + (p.status !== '已结束' ? '<button class="btn btn-sm btn-danger" onclick="togglePlanStatus(' + p.id + ',\\'已结束\\')">⏹ 结束</button>' : '')
+                      : ''}
+                  </td>
+                </tr>
+              `}).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch(e) {
+        document.getElementById('inspectionPlanWrap').innerHTML = `<p style="color:var(--danger)">加载失败</p>`;
+      }
+    }
+
+    async function togglePlanStatus(planId, newStatus) {
+      const labels = { '暂停': '暂停此计划？', '进行中': '恢复此计划？', '已结束': '结束此计划？（不可逆）' };
+      if (!confirm(labels[newStatus] || '确认操作？')) return;
+      try {
+        await API.inspections.updatePlan(planId, { status: newStatus });
+        showToast('计划状态已更新', 'success');
+        loadInspectionPlans();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function openInspectionRecordModal(planId, planName) {
+      let devices = [];
+      try { const rd = await API.devices.list({ page:1, page_size:100 }); devices = rd.data || []; } catch(e) {}
+      const today = new Date().toISOString().slice(0, 10);
+      Modal.show(`
+        <div style="max-height:70vh;overflow-y:auto;padding:8px;">
+          <h4 style="margin:0 0 16px 0;">🔍 巡检检查单 - ${planName.replace(/&quot;/g,'"')}</h4>
+          <input type="hidden" id="irPlanId" value="${planId}">
+          <input type="hidden" id="irInspectDate" value="${today}">
+          
+          <div class="form-group">
+            <label>设备编码 <span class="required">*</span></label>
+            <select class="form-control" id="irDeviceCode">
+              <option value="">-- 选择设备 --</option>
+              ${devices.map(d => '<option value="' + d.device_code + '">' + d.device_code + ' | ' + (d.hospital_name||'') + '</option>').join('')}
+            </select>
+          </div>
+          
+          <fieldset style="border:1px solid var(--border);padding:12px;margin-bottom:12px;">
+            <legend style="font-size:14px;font-weight:bold;width:auto;">📦 外观与安装</legend>
+            <div class="form-group"><label>设备外观正常</label><input type="checkbox" id="irAppearanceOk" checked></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div class="form-group"><label>离墙距离(cm)</label><input type="number" class="form-control" id="irWallDistance" placeholder="如：10"></div>
+              <div class="form-group"><label>地面水平度(°)</label><input type="number" step="0.1" class="form-control" id="irGroundLevel" placeholder="如：0.5"></div>
+            </div>
+          </fieldset>
+          
+          <fieldset style="border:1px solid var(--border);padding:12px;margin-bottom:12px;">
+            <legend style="font-size:14px;font-weight:bold;width:auto;">💻 系统与网络</legend>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div class="form-group"><label>Firmware版本</label><input type="text" class="form-control" id="irFirmware" placeholder="如：v2.1.0"></div>
+              <div class="form-group"><label>APP版本</label><input type="text" class="form-control" id="irAppVersion" placeholder="如：1.8.2"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div class="form-group"><label>运行时长(h)</label><input type="number" class="form-control" id="irRunHours" placeholder="如：720"></div>
+              <div class="form-group"><label>IP地址</label><input type="text" class="form-control" id="irIpAddress" placeholder="如：192.168.1.100"></div>
+            </div>
+            <div class="form-group"><label>网络稳定</label><input type="checkbox" id="irNetworkStable" checked></div>
+            <div class="form-group"><label>Ping丢包率(%)</label><input type="number" step="0.01" class="form-control" id="irPacketLoss" placeholder="如：0"></div>
+          </fieldset>
+          
+          <fieldset style="border:1px solid var(--border);padding:12px;margin-bottom:12px;">
+            <legend style="font-size:14px;font-weight:bold;width:auto;">💊 药品管理</legend>
+            <div class="form-group"><label>库存盘点正常</label><input type="checkbox" id="irDrugInventoryOk" checked></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div class="form-group"><label>低库存药品数</label><input type="number" class="form-control" id="irLowStockNum" value="0"></div>
+              <div class="form-group"><label>临期药品数</label><input type="number" class="form-control" id="irExpiringNum" value="0"></div>
+            </div>
+          </fieldset>
+          
+          <fieldset style="border:1px solid var(--border);padding:12px;margin-bottom:12px;">
+            <legend style="font-size:14px;font-weight:bold;width:auto;">🖨️ 硬件状态</legend>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">
+              <div><label>触摸屏</label><input type="checkbox" id="irScreenOk" checked></div>
+              <div><label>扫码枪</label><input type="checkbox" id="irScannerOk" checked></div>
+              <div><label>打印机</label><input type="checkbox" id="irPrinterOk" checked></div>
+              <div><label>锁具</label><input type="checkbox" id="irLockOk" checked></div>
+            </div>
+          </fieldset>
+          
+          <div class="form-group">
+            <label>巡检结果 <span class="required">*</span></label>
+            <select class="form-control" id="irResult">
+              <option value="正常">✓ 正常</option>
+              <option value="异常待处理">⚠️ 异常待处理</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>备注</label>
+            <textarea class="form-control" id="irNote" rows="3" placeholder="记录异常情况、建议等..."></textarea>
+          </div>
+        </div>
+      `, '执行巡检', { footer: '<div class="modal-footer"><button class="btn btn-outline" onclick="Modal.hide()">取消</button><button class="btn btn-primary" onclick="doSubmitInspectionRecord()">提交巡检记录</button></div>' });
+    }
+
+    async function doSubmitInspectionRecord() {
+      const plan_id = document.getElementById('irPlanId')?.value;
+      const device_code = document.getElementById('irDeviceCode')?.value;
+      const inspect_date = document.getElementById('irInspectDate')?.value;
+      if (!device_code) return showToast('请选择设备编码', 'error');
+      try {
+        await API.inspections.submitRecord({
+          plan_id: parseInt(plan_id),
+          device_code,
+          inspect_date,
+          appearance_ok: document.getElementById('irAppearanceOk')?.checked || false,
+          wall_distance: document.getElementById('irWallDistance')?.value || null,
+          ground_level: document.getElementById('irGroundLevel')?.value || null,
+          firmware_version: document.getElementById('irFirmware')?.value || '',
+          app_version: document.getElementById('irAppVersion')?.value || '',
+          run_hours: parseInt(document.getElementById('irRunHours')?.value) || 0,
+          ip_address: document.getElementById('irIpAddress')?.value || '',
+          network_stable: document.getElementById('irNetworkStable')?.checked || false,
+          packet_loss_rate: document.getElementById('irPacketLoss')?.value || null,
+          drug_inventory_ok: document.getElementById('irDrugInventoryOk')?.checked || false,
+          drug_low_stock_num: parseInt(document.getElementById('irLowStockNum')?.value) || 0,
+          drug_expiring_num: parseInt(document.getElementById('irExpiringNum')?.value) || 0,
+          screen_ok: document.getElementById('irScreenOk')?.checked || false,
+          scanner_ok: document.getElementById('irScannerOk')?.checked || false,
+          printer_ok: document.getElementById('irPrinterOk')?.checked || false,
+          lock_ok: document.getElementById('irLockOk')?.checked || false,
+          result: document.getElementById('irResult')?.value || '正常',
+          note: document.getElementById('irNote')?.value || ''
+        });
+        Modal.hide();
+        showToast('巡检记录已提交', 'success');
+        renderInspectionList(document.getElementById('pageContent'));
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function loadInspectionRecords() {
+      try {
+        const r = await API.inspections.records({ page_size: 20 });
+        const wrap = document.getElementById('inspectionRecordWrap');
+        if (!r.data || r.data.length === 0) {
+          wrap.innerHTML = '<div class="empty-state"><p>暂无巡检记录</p></div>';
+          return;
+        }
+        wrap.innerHTML = `
+          <table class="data-table">
+            <thead><tr><th>日期</th><th>计划</th><th>设备</th><th>医院</th><th>结果</th><th>操作</th></tr></thead>
+            <tbody>
+              ${r.data.map(rec => {
+                let resultHtml = rec.result === '正常' ? '✓ 正常' : (rec.result === '已处理' ? '✔ 已处理' : '⚠️ 异常待处理');
+                let actionHtml = rec.result === '异常待处理' 
+                  ? '<button class="btn btn-sm btn-warning" onclick="handleInspectionException(' + rec.id + ')">处理异常</button>'
+                  : '-';
+                return `
+                <tr>
+                  <td>${rec.inspect_date}</td>
+                  <td>${rec.plan_name || '-'}</td>
+                  <td>${rec.device_code}</td>
+                  <td>${rec.hospital_name || '-'}</td>
+                  <td>${resultHtml}</td>
+                  <td>${actionHtml}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch(e) {
+        document.getElementById('inspectionRecordWrap').innerHTML = '<p style="color:var(--danger)">加载失败</p>';
+      }
+    }
+
+    async function handleInspectionException(recordId) {
+      Modal.show(`
+        <div class="form-group">
+          <p style="margin-bottom:12px;">将巡检记录标记为已处理</p>
+          <label>处理结果</label>
+          <select class="form-control" id="handleResult">
+            <option value="已处理">✓ 已处理</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>处理说明</label>
+          <textarea class="form-control" id="handleNote" rows="3" placeholder="说明如何处理的..."></textarea>
+        </div>
+      `, '处理异常', { footer: '<div class="modal-footer"><button class="btn btn-outline" onclick="Modal.hide()">取消</button><button class="btn btn-warning" onclick="doHandleInspectionException(' + recordId + ')">确认处理</button></div>' });
+    }
+
+    async function doHandleInspectionException(recordId) {
+      const result = document.getElementById('handleResult')?.value;
+      const note = document.getElementById('handleNote')?.value;
+      try {
+        await API.inspections.updateRecord(recordId, { result, note });
+        Modal.hide();
+        showToast('异常已标记为已处理', 'success');
+        loadInspectionRecords();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function openCreateInspectionPlanModal() {
+      let hospitals = [];
+      let devices = [];
+      let engineers = [];
+      try {
+        const rh = await API.hospitals.list(); hospitals = rh.data || [];
+      } catch(e) {}
+      try {
+        const rd = await API.devices.list({ page:1, page_size:100 }); devices = rd.data || [];
+      } catch(e) {}
+      if (isHQ()) {
+        try {
+          const ru = await API.get('/api/users?role=engineer&page_size=50');
+          engineers = ru.data || [];
+        } catch(e) {}
+      }
+      Modal.show(`
+        ${isHQ() 
+          ? '<div class="form-group"><label>负责工程师 <span class="required">*</span></label><select class="form-control" id="planEngineer"><option value="">-- 选择工程师 --</option>' 
+            + engineers.map(e => '<option value="' + e.id + '">' + (e.real_name || e.username) + '（' + (e.city||'') + '）</option>').join('') 
+            + '</select></div>' 
+          : ''}
+        <div class="form-group">
+          <label>计划名称 <span class="required">*</span></label>
+          <input type="text" class="form-control" id="planName" placeholder="如：2025年5月广州市第一人民医院巡检">
+        </div>
+        <div class="form-group">
+          <label>医院 <span class="required">*</span></label>
+          <select class="form-control" id="planHospital">
+            <option value="">-- 选择医院 --</option>
+            ${hospitals.map(h => `<option value="${h.hospital_code}">${h.hospital_name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>巡检周期 <span class="required">*</span></label>
+          <select class="form-control" id="planCycle">
+            <option value="每周">每周</option>
+            <option value="每两周">每两周</option>
+            <option value="每月">每月</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>开始日期 <span class="required">*</span></label>
+          <input type="date" class="form-control" id="planStartDate">
+        </div>
+      `, '新建巡检计划', { footer: '<div class="modal-footer"><button class="btn btn-outline" onclick="Modal.hide()">取消</button><button class="btn btn-primary" onclick="doCreateInspectionPlan()">创建计划</button></div>' });
+    }
+
+    async function doCreateInspectionPlan() {
+      const plan_name = document.getElementById('planName')?.value.trim();
+      const hospital_code = document.getElementById('planHospital')?.value;
+      const cycle = document.getElementById('planCycle')?.value;
+      const start_date = document.getElementById('planStartDate')?.value;
+      const engineerEl = document.getElementById('planEngineer');
+      if (!plan_name || !hospital_code || !cycle || !start_date) return showToast('请填写所有必填项', 'error');
+      if (isHQ() && !engineerEl?.value) return showToast('请选择负责工程师', 'error');
+      try {
+        const data = { plan_name, hospital_code, device_codes:[], cycle, start_date };
+        if (engineerEl?.value) data.engineer_id = parseInt(engineerEl.value);
+        await API.inspections.createPlan(data);
+        Modal.hide();
+        showToast('巡检计划已创建', 'success');
+        renderInspectionList(document.getElementById('pageContent'));
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // ========== 维保台账 ==========
+    async function renderMaintenanceList(container) {
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-title">🔨 维保台账</div>
+          <div style="margin-bottom:16px;">
+            <button class="btn btn-success" onclick="openCreateMaintenanceModal()">➕ 新增维保记录</button>
+          </div>
+          <div id="maintenanceTableWrap"></div>
+          <div class="pagination" id="maintenancePagination"></div>
+        </div>
+      `;
+      reloadMaintenanceList(1);
+    }
+
+    async function reloadMaintenanceList(page = 1) {
+      try {
+        const r = await API.maintenance.list({ page, page_size:20 });
+        const wrap = document.getElementById('maintenanceTableWrap');
+        if (!r.data || r.data.length === 0) { wrap.innerHTML = '<div class="empty-state"><p>暂无维保记录</p></div>'; return; }
+        wrap.innerHTML = `
+          <table class="data-table">
+            <thead><tr><th>维保编号</th><th>设备</th><th>类型</th><th>描述</th><th>维保日期</th><th>操作人</th></tr></thead>
+            <tbody>
+              ${r.data.map(m => `
+                <tr>
+                  <td>${m.maintenance_no}</td>
+                  <td>${m.device_code}</td>
+                  <td>${m.type}</td>
+                  <td>${(m.description||'').slice(0,30)}</td>
+                  <td>${m.maintenance_date}</td>
+                  <td>${m.operator_name||'-'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+        renderPagination('maintenancePagination', r.total, r.page, r.page_size, reloadMaintenanceList);
+      } catch(e) {
+        document.getElementById('maintenanceTableWrap').innerHTML = `<p style="color:var(--danger)">加载失败: ${e.message}</p>`;
+      }
+    }
+
+    async function openCreateMaintenanceModal() {
+      let devices = [];
+      try { const r = await API.devices.list({ page:1, page_size:100 }); devices = r.data || []; } catch(e) {}
+      Modal.show(`
+        <div class="form-group">
+          <label>设备编码 <span class="required">*</span></label>
+          <select class="form-control" id="maintDeviceCode">
+            <option value="">-- 选择设备 --</option>
+            ${devices.map(d => `<option value="${d.device_code}">${d.device_code}（${d.hospital_name||''}）</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>维保类型 <span class="required">*</span></label>
+          <select class="form-control" id="maintType">
+            <option value="配件更换">配件更换</option>
+            <option value="固件升级">固件升级</option>
+            <option value="清洁保养">清洁保养</option>
+            <option value="校准调试">校准调试</option>
+            <option value="其他">其他</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>维保日期 <span class="required">*</span></label>
+          <input type="date" class="form-control" id="maintDate" value="${new Date().toISOString().slice(0,10)}">
+        </div>
+        <div class="form-group">
+          <label>描述</label>
+          <textarea class="form-control" id="maintDesc" rows="3" placeholder="维保内容描述"></textarea>
+        </div>
+        <div class="form-group" id="partGroup">
+          <label>更换配件名称</label>
+          <input type="text" class="form-control" id="maintPartName" placeholder="如：显示屏模块">
+        </div>
+      `, '新增维保记录', { footer: '<div class="modal-footer"><button class="btn btn-outline" onclick="Modal.hide()">取消</button><button class="btn btn-primary" onclick="doCreateMaintenance()">提交</button></div>' });
+    }
+
+    async function doCreateMaintenance() {
+      const device_code = document.getElementById('maintDeviceCode')?.value;
+      const type = document.getElementById('maintType')?.value;
+      const maintenance_date = document.getElementById('maintDate')?.value;
+      if (!device_code || !type || !maintenance_date) return showToast('请填写必填项', 'error');
+      try {
+        await API.maintenance.create({
+          device_code, type, description:document.getElementById('maintDesc')?.value||'',
+          part_name:document.getElementById('maintPartName')?.value||'', maintenance_date
+        });
+        Modal.hide();
+        showToast('维保记录已创建', 'success');
+        renderMaintenanceList(document.getElementById('pageContent'));
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // ========== 数据统计 ==========
+    async function renderStatistics(container) {
+      if (API.user?.role !== 'headquarters') {
+        container.innerHTML = '<div class="empty-state"><p>数据统计功能仅总部可见</p></div>';
+        return;
+      }
+      try {
+        const s = await API.statistics();
+        container.innerHTML = `
+          <div class="card">
+            <div class="card-title">📈 数据统计</div>
+            <div class="grid-4" style="margin-bottom:20px;">
+              <div class="stat-card"><div class="label">设备在线率</div><div class="value">${s.device_online_rate}%</div></div>
+              <div class="stat-card"><div class="label">故障闭环率</div><div class="value">${s.fault_by_status?.find?.(x=>x.status==='已闭环')?.cnt||0} / ${s.fault_by_status?.reduce?.((a,x)=>a+x.cnt,0)||0}</div></div>
+              <div class="stat-card"><div class="label">平均响应时长</div><div class="value">${s.avg_response_hours!=null ? s.avg_response_hours+'h' : '-'}</div></div>
+              <div class="stat-card"><div class="label">需求采纳率</div><div class="value">${s.demand_stats?.find?.(x=>x.status==='已采纳')?.cnt||0} / ${s.demand_stats?.reduce?.((a,x)=>a+x.cnt,0)||0}</div></div>
+            </div>
+
+            <h4>故障等级分布</h4>
+            <div style="margin-bottom:20px;">
+              ${(s.fault_by_level||[]).map(l => `
+                <div style="display:flex;align-items:center;margin-bottom:8px;">
+                  <span style="width:60px;font-size:13px;">${l.fault_level}</span>
+                  <div class="progress-bar" style="flex:1;margin:0 12px;">
+                    <div class="progress-bar-fill ${l.fault_level==='重大'?'danger':'warning'}" style="width:${Math.min(l.cnt*10,100)}%"></div>
+                  </div>
+                  <span style="font-size:13px;">${l.cnt}</span>
+                </div>
+              `).join('')||'<p style="color:var(--text-muted);">暂无数据</p>'}
+            </div>
+
+            <h4>故障分类分布</h4>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;">
+              ${(s.fault_by_category||[]).map(c => `
+                <div style="background:var(--primary-bg);padding:8px 12px;border-radius:6px;font-size:13px;">
+                  <span style="color:var(--primary);font-weight:600;">${c.cnt}</span> ${c.fault_category_l1}
+                </div>
+              `).join('')||'<p style="color:var(--text-muted);">暂无数据</p>'}
+            </div>
+          </div>
+        `;
+      } catch(e) {
+        container.innerHTML = `<div class="empty-state"><p>加载失败: ${e.message}</p></div>`;
+      }
+    }
+
+    // ========== 消息通知 ==========
+    async function renderNotifications(container) {
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-title">🔔 消息通知 <button class="btn btn-sm btn-outline" onclick="doReadAllNotifications()" style="float:right;">全部已读</button></div>
+          <div id="notifListWrap"></div>
+          <div class="pagination" id="notifPagination"></div>
+        </div>
+      `;
+      reloadNotifications(1);
+    }
+
+    async function reloadNotifications(page = 1) {
+      try {
+        const r = await API.notifications.list({ page, page_size:20 });
+        const wrap = document.getElementById('notifListWrap');
+        if (!r.data || r.data.length === 0) { wrap.innerHTML = '<div class="empty-state"><p>暂无消息</p></div>'; return; }
+        wrap.innerHTML = `
+          <table class="data-table">
+            <thead><tr><th>状态</th><th>标题</th><th>内容</th><th>类别</th><th>时间</th><th>操作</th></tr></thead>
+            <tbody>
+              ${r.data.map(n => `
+                <tr style="${n.is_read?'':'font-weight:600;'}">
+                  <td>${n.is_read?'<span style="color:var(--text-muted);">已读</span>':'<span style="color:var(--danger);">● 未读</span>'}</td>
+                  <td>${n.title}</td>
+                  <td>${(n.content||'').slice(0,50)}</td>
+                  <td>${n.category}</td>
+                  <td>${formatDate(n.created_at)}</td>
+                  <td>${n.is_read?'-':`<button class="btn btn-sm btn-primary" onclick="doReadNotification(${n.id})">标为已读</button>`}${n.fault_no?`<button class="btn btn-sm btn-outline" onclick="navigateTo('faultDetail',{fault_no:'${n.fault_no}'});Modal.hide();" style="margin-left:4px;">查看工单</button>`:''}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+        renderPagination('notifPagination', r.total, r.page, r.page_size, reloadNotifications);
+      } catch(e) {
+        document.getElementById('notifListWrap').innerHTML = `<p style="color:var(--danger)">加载失败: ${e.message}</p>`;
+      }
+    }
+
+    async function doReadNotification(id) {
+      try {
+        await API.notifications.read(id);
+        reloadNotifications();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function doReadAllNotifications() {
+      try {
+        await API.notifications.readAll();
+        showToast('已全部标为已读', 'success');
+        reloadNotifications();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // ========== 个人中心 ==========
+    async function renderProfile(container) {
+      const u = API.user;
+      container.innerHTML = `
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">👤 个人信息</div>
+            <p><strong>用户名：</strong>${u.username}</p>
+            <p><strong>姓名：</strong>${u.real_name||'-'}</p>
+            <p><strong>角色：</strong>${u.role==='engineer'?'工程师':u.role==='provincial_agent'?'省代':u.role==='city_agent'?'市代':'总部'}</p>
+            <p><strong>手机：</strong>${maskPhone(u.phone)}</p>
+            <p><strong>区域：</strong>${u.province||'-'} ${u.city||''} ${u.region||''}</p>
+          </div>
+          <div class="card">
+            <div class="card-title">⚙️ 设置</div>
+            <div class="form-group">
+              <label>修改密码</label>
+              <input type="password" class="form-control" id="oldPass" placeholder="原密码">
+              <input type="password" class="form-control" id="newPass" placeholder="新密码（至少6位）" style="margin-top:8px;">
+              <button class="btn btn-warning btn-sm" style="margin-top:8px;" onclick="doChangePassword()">确认修改</button>
+            </div>
+            <div class="form-group" style="margin-top:20px;">
+              <label>主题切换</label>
+              <div style="display:flex;gap:8px;margin-top:8px;">
+                <button class="btn btn-sm ${document.documentElement.getAttribute('data-theme')==='light'?'btn-primary':'btn-outline'}" onclick="setTheme('light')">☀ 浅色</button>
+                <button class="btn btn-sm ${document.documentElement.getAttribute('data-theme')==='dark'?'btn-primary':'btn-outline'}" onclick="setTheme('dark')">🌙 深色</button>
+              </div>
+            </div>
+            <div style="margin-top:20px;">
+              <button class="btn btn-danger btn-sm" onclick="if(confirm('确认退出登录？')) logout()">退出登录</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function setTheme(t) {
+      document.documentElement.setAttribute('data-theme', t);
+      localStorage.setItem('theme', t);
+      renderProfile(document.getElementById('pageContent'));
+    }
+
+    async function doChangePassword() {
+      const old_password = document.getElementById('oldPass')?.value;
+      const new_password = document.getElementById('newPass')?.value;
+      if (!old_password || !new_password) return showToast('请填写新旧密码', 'error');
+      if (new_password.length < 6) return showToast('新密码至少6位', 'error');
+      try {
+        await API.post('/api/auth/change-password', { old_password, new_password });
+        showToast('密码修改成功，请重新登录', 'success');
+        setTimeout(() => logout(), 1500);
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // ========== 分页 ==========
+    function renderPagination(containerId, total, page, pageSize, callback) {
+      const totalPages = Math.ceil(total / pageSize);
+      if (totalPages <= 1) { document.getElementById(containerId).innerHTML = ''; return; }
+      let html = '';
+      html += `<button ${page<=1?'disabled':''} onclick="${callback.name}(${page-1})">‹ 上一页</button>`;
+      const start = Math.max(1, page - 2);
+      const end = Math.min(totalPages, page + 2);
+      for (let i = start; i <= end; i++) {
+        html += `<button class="${i===page?'active':''}" onclick="${callback.name}(${i})">${i}</button>`;
+      }
+      html += `<button ${page>=totalPages?'disabled':''} onclick="${callback.name}(${page+1})">下一页 ›</button>`;
+      html += `<span style="margin-left:12px;font-size:12px;color:var(--text-muted);">共 ${total} 条</span>`;
+      document.getElementById(containerId).innerHTML = html;
+    }
+
+    // ========== 初始化 ==========
+    initApp();
+  </script>
+</body>
+</html>
