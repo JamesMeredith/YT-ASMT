@@ -1509,11 +1509,11 @@
                   <td>${getStatusTag(p.status)}</td>
                   <td>${p.record_count||0}</td>
                   <td>
-                    <button class="btn btn-sm btn-primary" onclick="openInspectionRecordModal(${p.id},'${safeName}')">🔍 执行巡检</button>
+                    <button class="btn btn-sm btn-primary" data-action="inspect" data-id="${p.id}" data-name="${safeName}">🔍 执行巡检</button>
                     ${hq 
-                      ? (p.status === '进行中' ? '<button class="btn btn-sm btn-outline" onclick="togglePlanStatus(' + p.id + ',\\'暂停\\')">⏸ 暂停</button> ' : '')
-                        + (p.status === '已暂停' ? '<button class="btn btn-sm btn-outline" onclick="togglePlanStatus(' + p.id + ',\\'进行中\\')">▶ 恢复</button> ' : '')
-                        + (p.status !== '已结束' ? '<button class="btn btn-sm btn-danger" onclick="togglePlanStatus(' + p.id + ',\\'已结束\\')">⏹ 结束</button>' : '')
+                      ? (p.status === '进行中' ? '<button class="btn btn-sm btn-outline" data-action="toggle-status" data-id="' + p.id + '" data-status="暂停">⏸ 暂停</button> ' : '')
+                        + (p.status === '已暂停' ? '<button class="btn btn-sm btn-outline" data-action="toggle-status" data-id="' + p.id + '" data-status="进行中">▶ 恢复</button> ' : '')
+                        + (p.status !== '已结束' ? '<button class="btn btn-sm btn-danger" data-action="toggle-status" data-id="' + p.id + '" data-status="已结束">⏹ 结束</button>' : '')
                       : ''}
                   </td>
                 </tr>
@@ -2039,6 +2039,31 @@
       html += `<span style="margin-left:12px;font-size:12px;color:var(--text-muted);">共 ${total} 条</span>`;
       document.getElementById(containerId).innerHTML = html;
     }
+
+    // ========== 事件委托 ==========
+    document.addEventListener('click', function(e) {
+      var target = e.target;
+
+      // 处理巡检按钮点击
+      if (target.dataset.action === 'inspect') {
+        var id = parseInt(target.dataset.id);
+        var name = target.dataset.name;
+        if (id && name) {
+          openInspectionRecordModal(id, name);
+        }
+        return;
+      }
+
+      // 处理状态切换按钮点击
+      if (target.dataset.action === 'toggle-status') {
+        var id = parseInt(target.dataset.id);
+        var status = target.dataset.status;
+        if (id && status) {
+          togglePlanStatus(id, status);
+        }
+        return;
+      }
+    });
 
     // ========== 初始化 ==========
     initApp();
