@@ -401,7 +401,7 @@ async function doCreateUser() {
     await API.users.create(data);
     Modal.hide();
     showToast('用户已创建（默认密码：123456）', 'success');
-    renderUsersList(document.getElementById('pageContent'));
+    renderUsersList(adminContent());
   } catch(e) { showToast(e.message || '操作失败', 'error'); }
 }
 
@@ -456,7 +456,7 @@ async function doEditUser(userId) {
     await API.patch('/api/users/' + userId, data);
     Modal.hide();
     showToast('用户信息已更新', 'success');
-    renderUsersList(document.getElementById('pageContent'));
+    renderUsersList(adminContent());
   } catch(e) { showToast(e.message || '操作失败', 'error'); }
 }
 
@@ -465,7 +465,7 @@ async function doToggleUser(userId) {
   try {
     await API.users.toggle(userId);
     showToast('用户状态已变更', 'success');
-    renderUsersList(document.getElementById('pageContent'));
+    renderUsersList(adminContent());
   } catch(e) { showToast(e.message || '操作失败', 'error'); }
 }
 
@@ -1092,7 +1092,7 @@ async function doCreateNodeDef() {
     await API.post('/api/pre-sales/node-defs', { node_index, node_name, stage, is_remote, work_items, required_materials });
     Modal.hide();
     showToast('节点定义已创建', 'success');
-    renderPreSalesNodeConfig(document.getElementById('pageContent'));
+    renderPreSalesNodeConfig(adminContent());
   } catch(e) { showToast(e.message, 'error'); }
 }
 
@@ -1145,7 +1145,7 @@ async function doUpdateNodeDef(id) {
     await API.put(`/api/pre-sales/node-defs/${id}`, { node_index, node_name, stage, is_remote, work_items, required_materials });
     Modal.hide();
     showToast('已保存', 'success');
-    renderPreSalesNodeConfig(document.getElementById('pageContent'));
+    renderPreSalesNodeConfig(adminContent());
   } catch(e) { showToast(e.message, 'error'); }
 }
 
@@ -1154,7 +1154,7 @@ async function deleteNodeDef(id) {
   try {
     await API.del(`/api/pre-sales/node-defs/${id}`);
     showToast('已删除', 'success');
-    renderPreSalesNodeConfig(document.getElementById('pageContent'));
+    renderPreSalesNodeConfig(adminContent());
   } catch(e) { showToast(e.message, 'error'); }
 }
 

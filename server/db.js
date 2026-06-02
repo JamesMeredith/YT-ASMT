@@ -188,10 +188,10 @@ function runMigrations(raw) {
         items:['设备就位、调整水平','连接电源线、网线','配置设备IP并录入系统','确认指示灯正常、网络连通'],
         materials:['安装完成照片','IP地址分配表'] },
       { idx:5, name:'到场后-接口联调', stage:'现场', remote:0,
-        items:['HIS系统接口对接测试','数据同步功能验证','异常处理流程测试'],
+        items:['HIS系统接口对接测试','数据同步功能验证'],
         materials:['接口联调日志','联调确认截图'] },
       { idx:6, name:'到场后-系统调试配置', stage:'现场', remote:0,
-        items:['设备基本参数配置','药品数据库导入/初始化','用户权限配置','预警规则配置'],
+        items:['设备基本参数配置','药品数据库导入/初始化','用户权限配置','预警规则配置','异常处理流程测试'],
         materials:['系统配置截图'] },
       { idx:7, name:'到场后-操作培训交付', stage:'现场', remote:0,
         items:['现场操作教学','使用答疑','交付操作手册'],
@@ -249,6 +249,72 @@ function runMigrations(raw) {
   E('CREATE INDEX IF NOT EXISTS idx_hospital_supplier ON hospitals(supplier_id)');
   E('CREATE INDEX IF NOT EXISTS idx_hospital_engineer ON hospitals(engineer_id)');
   E('ALTER TABLE pre_sales_projects ADD COLUMN closed_at DATETIME');
+
+  // V4.1: 节点5/6工作项调整（异常处理流程测试移到节点6）
+  try {
+    const nd5 = raw.exec("SELECT work_items_json FROM pre_sales_node_defs WHERE node_index=5");
+    const nd6 = raw.exec("SELECT work_items_json FROM pre_sales_node_defs WHERE node_index=6");
+    if (nd5.length && nd5[0].values.length && nd6.length && nd6[0].values.length) {
+      const j5 = JSON.parse(nd5[0].values[0][0] || '[]');
+      const j6 = JSON.parse(nd6[0].values[0][0] || '[]');
+      if (j5.includes('异常处理流程测试') && !j6.includes('异常处理流程测试')) {
+        const new5 = j5.filter(x => x !== '异常处理流程测试');
+        const new6 = [...j6, '异常处理流程测试'];
+        raw.run("UPDATE pre_sales_node_defs SET work_items_json=?,updated_at=datetime('now','localtime') WHERE node_index=5", [JSON.stringify(new5)]);
+        raw.run("UPDATE pre_sales_node_defs SET work_items_json=?,updated_at=datetime('now','localtime') WHERE node_index=6", [JSON.stringify(new6)]);
+        console.log('[MIGRATE] 已调整节点5/6工作项（异常处理流程测试→节点6）');
+      }
+    }
+  } catch(e) { /* skip if nodes don't exist yet */ }
+
+  // V4.2: 巡检检查单可配置化
+  E(`CREATE TABLE IF NOT EXISTS inspection_checklist_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    zone_name VARCHAR(32) NOT NULL,
+    zone_sort INTEGER NOT NULL DEFAULT 0,
+    item_key VARCHAR(64) NOT NULL UNIQUE,
+    item_label VARCHAR(128) NOT NULL,
+    item_type VARCHAR(16) NOT NULL DEFAULT 'checkbox' CHECK(item_type IN ('checkbox','text','number')),
+    placeholder VARCHAR(128),
+    is_required TINYINT DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    status VARCHAR(16) DEFAULT 'active' CHECK(status IN ('active','inactive')),
+    created_at DATETIME DEFAULT (datetime('now','localtime')),
+    updated_at DATETIME DEFAULT (datetime('now','localtime'))
+  )`);
+  E('CREATE INDEX IF NOT EXISTS idx_icitem_zone ON inspection_checklist_items(zone_sort,sort_order)');
+  E('ALTER TABLE inspection_records ADD COLUMN checklist_data TEXT');
+
+  // 补种默认检查项
+  const chkResult = raw.exec('SELECT COUNT(*) as cnt FROM inspection_checklist_items');
+  const chkCount = chkResult.length > 0 ? chkResult[0].values[0][0] : -1;
+  if (chkCount === 0) {
+    const items = [
+      {zone:'外观与安装',zs:1,key:'appearance_ok',label:'设备外观正常',type:'checkbox',req:1,so:1},
+      {zone:'外观与安装',zs:1,key:'wall_distance',label:'离墙距离(cm)',type:'number',ph:'如：10',req:0,so:2},
+      {zone:'外观与安装',zs:1,key:'ground_level',label:'地面水平度(°)',type:'number',ph:'如：0.5',req:0,so:3},
+      {zone:'系统与网络',zs:2,key:'firmware_version',label:'Firmware版本',type:'text',ph:'如：v2.1.0',req:0,so:1},
+      {zone:'系统与网络',zs:2,key:'app_version',label:'APP版本',type:'text',ph:'如：1.8.2',req:0,so:2},
+      {zone:'系统与网络',zs:2,key:'run_hours',label:'运行时长(h)',type:'number',ph:'如：720',req:0,so:3},
+      {zone:'系统与网络',zs:2,key:'ip_address',label:'IP地址',type:'text',ph:'如：192.168.1.100',req:0,so:4},
+      {zone:'系统与网络',zs:2,key:'network_stable',label:'网络稳定',type:'checkbox',req:1,so:5},
+      {zone:'系统与网络',zs:2,key:'packet_loss_rate',label:'Ping丢包率(%)',type:'number',ph:'如：0',req:0,so:6},
+      {zone:'药品管理',zs:3,key:'drug_inventory_ok',label:'库存盘点正常',type:'checkbox',req:1,so:1},
+      {zone:'药品管理',zs:3,key:'drug_low_stock_num',label:'低库存药品数',type:'number',ph:'如：0',req:0,so:2},
+      {zone:'药品管理',zs:3,key:'drug_expiring_num',label:'临期药品数',type:'number',ph:'如：0',req:0,so:3},
+      {zone:'硬件状态',zs:4,key:'screen_ok',label:'触摸屏',type:'checkbox',req:0,so:1},
+      {zone:'硬件状态',zs:4,key:'scanner_ok',label:'扫码枪',type:'checkbox',req:0,so:2},
+      {zone:'硬件状态',zs:4,key:'printer_ok',label:'打印机',type:'checkbox',req:0,so:3},
+      {zone:'硬件状态',zs:4,key:'lock_ok',label:'锁具',type:'checkbox',req:0,so:4}
+    ];
+    const stmt = raw.prepare('INSERT INTO inspection_checklist_items (zone_name,zone_sort,item_key,item_label,item_type,placeholder,is_required,sort_order) VALUES (?,?,?,?,?,?,?,?)');
+    for (const i of items) {
+      stmt.run([i.zone, i.zs, i.key, i.label, i.type, i.ph || null, i.req, i.so]);
+      stmt.reset();
+    }
+    stmt.free();
+    console.log('[MIGRATE] 已补种17项默认巡检检查单');
+  }
 
   // 为已有医院自动匹配供应商（基于省份）
   const hResult = raw.exec('SELECT COUNT(*) as v FROM hospitals WHERE supplier_id IS NULL');

@@ -50,7 +50,7 @@ const upload = multer({
   storage,
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
   fileFilter: (req, file, cb) => {
-    const allowed = ['.jpg', '.jpeg', '.png', '.pdf', '.xlsx', '.xls'];
+    const allowed = ['.jpg', '.jpeg', '.png', '.pdf', '.xlsx', '.xls', '.doc', '.docx'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowed.includes(ext)) return cb(null, true);
     cb(new Error('不支持的文件类型'));
@@ -228,7 +228,8 @@ app.get('/api/faults/:fault_no', (req, res) => {
   const { fault_no } = req.params;
 
   const fault = db.prepare(`
-    SELECT f.*, h.hospital_name, h.address as hospital_address, h.contact_person, h.contact_phone,
+    SELECT f.*, h.hospital_name, h.address as hospital_address,
+           h.contact_person as hospital_contact_person, h.contact_phone as hospital_contact_phone,
            u.real_name as engineer_name, u.phone as engineer_phone,
            r.real_name as reviewer_name
     FROM fault_orders f
@@ -690,7 +691,7 @@ app.post('/api/inspections/records', (req, res) => {
     ip_address, network_stable, packet_loss_rate,
     drug_inventory_ok, drug_low_stock_num, drug_expiring_num,
     screen_ok, scanner_ok, printer_ok, lock_ok,
-    result, note
+    result, note, checklist_data
   } = req.body;
 
   const rec = db.prepare(`
@@ -698,15 +699,15 @@ app.post('/api/inspections/records', (req, res) => {
     (plan_id,device_code,engineer_id,inspect_date,appearance_ok,wall_distance,ground_level,
      firmware_version,app_version,run_hours,ip_address,network_stable,packet_loss_rate,
      drug_inventory_ok,drug_low_stock_num,drug_expiring_num,
-     screen_ok,scanner_ok,printer_ok,lock_ok,result,note)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     screen_ok,scanner_ok,printer_ok,lock_ok,result,note,checklist_data)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(plan_id || null, device_code, req.user.id, inspect_date || new Date().toISOString().slice(0, 10),
     appearance_ok ? 1 : 0, wall_distance || null, ground_level || null,
     firmware_version || '', app_version || '', run_hours || 0,
     ip_address || '', network_stable ? 1 : 0, packet_loss_rate || null,
     drug_inventory_ok ? 1 : 0, drug_low_stock_num || 0, drug_expiring_num || 0,
     screen_ok ? 1 : 0, scanner_ok ? 1 : 0, printer_ok ? 1 : 0, lock_ok ? 1 : 0,
-    result || '正常', note || '');
+    result || '正常', note || '', checklist_data || null);
 
   // 更新下次巡检时间
   if (plan_id) {
@@ -762,6 +763,81 @@ app.patch('/api/inspections/records/:id', (req, res) => {
       .run(result, note || null, id);
   }
   res.json({ message: 'ok' });
+});
+
+// ======================= 巡检检查单管理（HQ 可配置） =======================
+
+// 获取检查单（按区域分组）
+app.get('/api/inspections/checklist', (req, res) => {
+  const db = getDbSync();
+  const items = db.prepare(
+    "SELECT * FROM inspection_checklist_items WHERE status='active' ORDER BY zone_sort, sort_order"
+  ).all();
+  // 按区域分组
+  const zones = [];
+  const zoneMap = new Map();
+  for (const item of items) {
+    if (!zoneMap.has(item.zone_name)) {
+      const zone = { name: item.zone_name, sort: item.zone_sort, items: [] };
+      zoneMap.set(item.zone_name, zone);
+      zones.push(zone);
+    }
+    zoneMap.get(item.zone_name).items.push(item);
+  }
+  zones.sort((a,b) => a.sort - b.sort);
+  res.json({ data: zones });
+});
+
+// 获取所有检查项（HQ管理用，含禁用项）
+app.get('/api/inspections/checklist/all', (req, res) => {
+  const db = getDbSync();
+  const items = db.prepare('SELECT * FROM inspection_checklist_items ORDER BY zone_sort, sort_order').all();
+  res.json({ data: items });
+});
+
+// 新增检查项（HQ）
+app.post('/api/inspections/checklist', (req, res) => {
+  const db = getDbSync();
+  if (req.user.role !== 'headquarters') return res.status(403).json({ error: '仅总部可操作' });
+  const { zone_name, zone_sort, item_key, item_label, item_type, placeholder, is_required, sort_order } = req.body;
+  if (!zone_name || !item_key || !item_label) return res.status(400).json({ error: '必填字段不能为空' });
+  try {
+    db.prepare(`INSERT INTO inspection_checklist_items (zone_name,zone_sort,item_key,item_label,item_type,placeholder,is_required,sort_order)
+      VALUES (?,?,?,?,?,?,?,?)`)
+      .run(zone_name, zone_sort||0, item_key, item_label, item_type||'checkbox', placeholder||null, is_required !== undefined ? is_required : 1, sort_order||0);
+    res.json({ success: true });
+  } catch(e) { res.status(400).json({ error: 'key重复或字段无效: ' + e.message }); }
+});
+
+// 编辑检查项（HQ）
+app.patch('/api/inspections/checklist/:id', (req, res) => {
+  const db = getDbSync();
+  if (req.user.role !== 'headquarters') return res.status(403).json({ error: '仅总部可操作' });
+  const { zone_name, zone_sort, item_label, item_type, placeholder, is_required, sort_order, status } = req.body;
+  try {
+    const fields = [];
+    const vals = [];
+    if (zone_name !== undefined) { fields.push('zone_name=?'); vals.push(zone_name); }
+    if (zone_sort !== undefined) { fields.push('zone_sort=?'); vals.push(zone_sort); }
+    if (item_label !== undefined) { fields.push('item_label=?'); vals.push(item_label); }
+    if (item_type !== undefined) { fields.push('item_type=?'); vals.push(item_type); }
+    if (placeholder !== undefined) { fields.push('placeholder=?'); vals.push(placeholder); }
+    if (is_required !== undefined) { fields.push('is_required=?'); vals.push(is_required); }
+    if (sort_order !== undefined) { fields.push('sort_order=?'); vals.push(sort_order); }
+    if (status !== undefined) { fields.push('status=?'); vals.push(status); }
+    fields.push("updated_at=datetime('now','localtime')");
+    vals.push(parseInt(req.params.id));
+    db.prepare(`UPDATE inspection_checklist_items SET ${fields.join(',')} WHERE id=?`).run(vals);
+    res.json({ success: true });
+  } catch(e) { res.status(400).json({ error: e.message }); }
+});
+
+// 删除检查项（HQ）
+app.delete('/api/inspections/checklist/:id', (req, res) => {
+  const db = getDbSync();
+  if (req.user.role !== 'headquarters') return res.status(403).json({ error: '仅总部可操作' });
+  db.prepare('DELETE FROM inspection_checklist_items WHERE id=?').run(parseInt(req.params.id));
+  res.json({ success: true });
 });
 
 // ======================= 维保台账 =======================

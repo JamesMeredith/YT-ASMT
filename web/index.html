@@ -125,17 +125,8 @@
         <div class="nav-group nav-hq-only" style="display:none;">
           <div class="nav-group-title" onclick="toggleNavGroup(this)"><span class="nav-text">⚙ 系统管理</span><span class="nav-arrow">▾</span></div>
           <div class="nav-group-items">
-            <div class="nav-item" data-page="users" onclick="navigateTo('users')">
-              <span class="icon">👥</span><span class="nav-text">用户管理</span>
-            </div>
-            <div class="nav-item" data-page="statistics" onclick="navigateTo('statistics')">
-              <span class="icon">📈</span><span class="nav-text">数据统计</span>
-            </div>
-            <div class="nav-item" data-page="deviceModels" onclick="navigateTo('deviceModels')">
-              <span class="icon">📦</span><span class="nav-text">设备型号管理</span>
-            </div>
-            <div class="nav-item" data-page="preSalesConfig" onclick="navigateTo('preSalesConfig')">
-              <span class="icon">🔧</span><span class="nav-text">售中节点配置</span>
+            <div class="nav-item" data-page="admin" onclick="navigateTo('admin')">
+              <span class="icon">⚙</span><span class="nav-text">系统管理</span>
             </div>
           </div>
         </div>
@@ -186,6 +177,7 @@
 
   <script src="/js/app.js"></script>
   <script src="/js/pages.js"></script>
+<script src="/js/pages_checklist.js"></script>
   <script>
     // ========== 路由 ==========
     const pageTitles = {
@@ -193,7 +185,8 @@
       inspections: '巡检管理', maintenance: '维保台账', parts: '配件管理',
       demands: '需求管理',
       knowledge: '知识库', statistics: '数据统计', notifications: '消息通知',
-      users: '用户管理', profile: '个人中心'
+      users: '用户管理', profile: '个人中心',
+      admin: '系统管理'
     };
 
     let currentPage = 'dashboard';
@@ -304,8 +297,10 @@
       case 'preSales': renderPreSalesList(c, params); break;
       case 'preSalesDetail': renderPreSalesDetail(c, params); break;
       case 'preSalesCreate': renderPreSalesCreate(c); break;
-      case 'preSalesConfig': renderPreSalesNodeConfig(c); break;
-      case 'deviceModels': renderDeviceModelsList(c); break;
+      case 'admin': renderAdminPanel(c, params); break;
+      // 以下页面作为 admin 子模块，保留直接访问入口
+      case 'users': case 'statistics': case 'preSalesConfig': case 'inspectionChecklist': case 'deviceModels':
+        renderAdminPanel(c, { module: page }); break;
             case 'profile': renderProfile(c); break;
             default: renderDashboard(c);
           }
@@ -318,6 +313,73 @@
     function toggleSidebar() {
       const sb = document.getElementById('sidebar');
       sb.style.width = sb.style.width === '60px' ? '220px' : '60px';
+    }
+
+    // ========== 系统管理面板 ==========
+    
+    // 辅助：定位当前渲染目标（admin 面板内容区 or 普通 pageContent）
+    function adminContent() {
+      return document.getElementById('admin-content') || document.getElementById('pageContent');
+    }
+
+    const adminModules = [
+      { key: 'users', icon: '👥', label: '用户管理' },
+      { key: 'statistics', icon: '📈', label: '数据统计' },
+      { key: 'deviceModels', icon: '📦', label: '设备型号管理' },
+      { key: 'preSalesConfig', icon: '🔧', label: '售中节点配置' },
+      { key: 'inspectionChecklist', icon: '✅', label: '巡检检查单配置' }
+    ];
+
+    function renderAdminPanel(c, params) {
+      var activeKey = (params && params.module) ? params.module : 'users';
+      // 顶部标签栏
+      var tabs = '';
+      adminModules.forEach(function(m) {
+        tabs +=
+          '<div class="admin-tab' + (m.key === activeKey ? ' active' : '') + '" data-module="' + m.key + '" onclick="adminSwitchModule(\'' + m.key + '\')">'
+          + '<span class="admin-tab-icon">' + m.icon + '</span>'
+          + '<span class="admin-tab-label">' + m.label + '</span>'
+          + '</div>';
+      });
+      c.innerHTML =
+        '<div class="admin-panel">'
+        + '<div class="admin-tabs" id="admin-tabs">' + tabs + '</div>'
+        + '<div class="admin-content" id="admin-content">'
+        +   '<div class="loading"><span class="spinner"></span>加载中...</div>'
+        + '</div>'
+        + '</div>';
+      window._adminCurrentModule = activeKey;
+      adminRenderModule(activeKey);
+    }
+
+    function adminSwitchModule(key) {
+      window._adminCurrentModule = key;
+      // 更新标签栏高亮
+      document.querySelectorAll('.admin-tab').forEach(function(i) {
+        i.classList.toggle('active', i.dataset.module === key);
+      });
+      // 更新页面标题
+      var m = adminModules.find(function(x) { return x.key === key; });
+      if (m) document.getElementById('pageTitle').textContent = '系统管理 / ' + m.label;
+      adminRenderModule(key);
+    }
+
+    function adminRenderModule(key) {
+      var target = document.getElementById('admin-content');
+      if (!target) return;
+      target.innerHTML = '<div class="loading"><span class="spinner"></span>加载中...</div>';
+      try {
+        switch (key) {
+          case 'users': renderUsersList(target); break;
+          case 'statistics': renderStatistics(target); break;
+          case 'deviceModels': renderDeviceModelsList(target); break;
+          case 'preSalesConfig': renderPreSalesNodeConfig(target); break;
+          case 'inspectionChecklist': renderInspectionChecklistConfig(target); break;
+          default: target.innerHTML = '<div class="empty-state"><p>未知模块</p></div>';
+        }
+      } catch (e) {
+        target.innerHTML = '<div class="empty-state"><p>加载失败: ' + e.message + '</p></div>';
+      }
     }
 
     // ========== 主题 ==========
@@ -834,7 +896,7 @@
         <div class="form-group">
           <label>故障描述 <span class="required">*</span>（至少10字）</label>
           <textarea class="form-control" id="newFaultDesc" placeholder="请详细描述故障现象..." rows="3"></textarea>
-          <div class="form-hint">已输入 <span id="newFaultDescCount">0</span>/10 字</div>
+          <div class="form-hint">已输入 <span id="newFaultDescCount">0</span>/10 字 | 故障等级将根据描述关键词自动判定</div>
         </div>
         <div class="form-group">
           <label>联系人 <span class="required">*</span></label>
@@ -1245,6 +1307,15 @@
               <textarea class="form-control" id="evalNote"></textarea>
             </div>
             <button class="btn btn-primary" onclick="doEvaluate('${demand_no}')">提交评估</button>
+          </div>` : (d.status==='已采纳'||d.status==='已驳回') ? `
+          <div class="card">
+            <div class="card-title">📋 评估结果</div>
+            <p><strong>结论：</strong>${d.status==='已采纳'?'✅ 已采纳':'❌ 已驳回'}</p>
+            ${d.eval_result==='已驳回' && d.reject_reason ? `<p><strong>驳回原因：</strong>${d.reject_reason}</p>` : ''}
+            ${d.estimated_launch_date ? `<p><strong>预计上线：</strong>${d.estimated_launch_date}</p>` : ''}
+            ${d.schedule_note ? `<p><strong>排期备注：</strong>${d.schedule_note}</p>` : ''}
+            ${d.eval_note ? `<p><strong>评估备注：</strong>${d.eval_note}</p>` : ''}
+            ${d.eval_time ? `<p><strong>评估时间：</strong>${formatDate(d.eval_time)}</p>` : ''}
           </div>` : ''}
         `;
         setTimeout(() => {
@@ -1537,9 +1608,45 @@
     }
 
     async function openInspectionRecordModal(planId, planName) {
+      // 加载设备列表和检查单
       let devices = [];
-      try { const rd = await API.devices.list({ page:1, page_size:100 }); devices = rd.data || []; } catch(e) {}
+      let checklist = [];
+      try {
+        const [rd, cl] = await Promise.all([
+          API.devices.list({ page:1, page_size:100 }),
+          API.get('/api/inspections/checklist')
+        ]);
+        devices = rd.data || [];
+        checklist = cl.data || [];
+      } catch(e) {}
       const today = new Date().toISOString().slice(0, 10);
+
+      // 动态渲染检查项（按区域分组）
+      const zoneEmoji = { '外观与安装':'📦', '系统与网络':'💻', '药品管理':'💊', '硬件状态':'🖨️' };
+      let checklistHtml = '';
+      for (const zone of checklist) {
+        const emoji = zoneEmoji[zone.name] || '📋';
+        let itemsHtml = '';
+        for (const item of zone.items) {
+          if (item.item_type === 'checkbox') {
+            itemsHtml += `<div><label>${item.item_label}${item.is_required ? ' <span class="required">*</span>' : ''}</label><input type="checkbox" id="ir_${item.item_key}" ${item.is_required ? 'checked' : ''}></div>`;
+          } else if (item.item_type === 'number') {
+            itemsHtml += `<div class="form-group"><label>${item.item_label}${item.is_required ? ' <span class="required">*</span>' : ''}</label><input type="number" class="form-control" id="ir_${item.item_key}" placeholder="${item.placeholder||''}"></div>`;
+          } else {
+            itemsHtml += `<div class="form-group"><label>${item.item_label}${item.is_required ? ' <span class="required">*</span>' : ''}</label><input type="text" class="form-control" id="ir_${item.item_key}" placeholder="${item.placeholder||''}"></div>`;
+          }
+        }
+        const itemCount = zone.items.length;
+        const cols = itemCount <= 4 ? itemCount : (itemCount <= 6 ? 2 : 3);
+        checklistHtml += `
+          <fieldset style="border:1px solid var(--border);padding:12px;margin-bottom:12px;">
+            <legend style="font-size:14px;font-weight:bold;width:auto;">${emoji} ${zone.name}</legend>
+            <div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:8px;">
+              ${itemsHtml}
+            </div>
+          </fieldset>`;
+      }
+
       Modal.show(`
         <div style="max-height:70vh;overflow-y:auto;padding:8px;">
           <h4 style="margin:0 0 16px 0;">🔍 巡检检查单 - ${planName.replace(/&quot;/g,'"')}</h4>
@@ -1554,47 +1661,7 @@
             </select>
           </div>
           
-          <fieldset style="border:1px solid var(--border);padding:12px;margin-bottom:12px;">
-            <legend style="font-size:14px;font-weight:bold;width:auto;">📦 外观与安装</legend>
-            <div class="form-group"><label>设备外观正常</label><input type="checkbox" id="irAppearanceOk" checked></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-              <div class="form-group"><label>离墙距离(cm)</label><input type="number" class="form-control" id="irWallDistance" placeholder="如：10"></div>
-              <div class="form-group"><label>地面水平度(°)</label><input type="number" step="0.1" class="form-control" id="irGroundLevel" placeholder="如：0.5"></div>
-            </div>
-          </fieldset>
-          
-          <fieldset style="border:1px solid var(--border);padding:12px;margin-bottom:12px;">
-            <legend style="font-size:14px;font-weight:bold;width:auto;">💻 系统与网络</legend>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-              <div class="form-group"><label>Firmware版本</label><input type="text" class="form-control" id="irFirmware" placeholder="如：v2.1.0"></div>
-              <div class="form-group"><label>APP版本</label><input type="text" class="form-control" id="irAppVersion" placeholder="如：1.8.2"></div>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-              <div class="form-group"><label>运行时长(h)</label><input type="number" class="form-control" id="irRunHours" placeholder="如：720"></div>
-              <div class="form-group"><label>IP地址</label><input type="text" class="form-control" id="irIpAddress" placeholder="如：192.168.1.100"></div>
-            </div>
-            <div class="form-group"><label>网络稳定</label><input type="checkbox" id="irNetworkStable" checked></div>
-            <div class="form-group"><label>Ping丢包率(%)</label><input type="number" step="0.01" class="form-control" id="irPacketLoss" placeholder="如：0"></div>
-          </fieldset>
-          
-          <fieldset style="border:1px solid var(--border);padding:12px;margin-bottom:12px;">
-            <legend style="font-size:14px;font-weight:bold;width:auto;">💊 药品管理</legend>
-            <div class="form-group"><label>库存盘点正常</label><input type="checkbox" id="irDrugInventoryOk" checked></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-              <div class="form-group"><label>低库存药品数</label><input type="number" class="form-control" id="irLowStockNum" value="0"></div>
-              <div class="form-group"><label>临期药品数</label><input type="number" class="form-control" id="irExpiringNum" value="0"></div>
-            </div>
-          </fieldset>
-          
-          <fieldset style="border:1px solid var(--border);padding:12px;margin-bottom:12px;">
-            <legend style="font-size:14px;font-weight:bold;width:auto;">🖨️ 硬件状态</legend>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">
-              <div><label>触摸屏</label><input type="checkbox" id="irScreenOk" checked></div>
-              <div><label>扫码枪</label><input type="checkbox" id="irScannerOk" checked></div>
-              <div><label>打印机</label><input type="checkbox" id="irPrinterOk" checked></div>
-              <div><label>锁具</label><input type="checkbox" id="irLockOk" checked></div>
-            </div>
-          </fieldset>
+          ${checklistHtml}
           
           <div class="form-group">
             <label>巡检结果 <span class="required">*</span></label>
@@ -1612,33 +1679,50 @@
     }
 
     async function doSubmitInspectionRecord() {
-      const plan_id = document.getElementById('irPlanId')?.value;
+      const plan_id = parseInt(document.getElementById('irPlanId')?.value);
       const device_code = document.getElementById('irDeviceCode')?.value;
       const inspect_date = document.getElementById('irInspectDate')?.value;
       if (!device_code) return showToast('请选择设备编码', 'error');
+
+      // 动态收集检查项数据
+      const checklistData = {};
+      const itemEls = document.querySelectorAll('[id^="ir_"]');
+      for (const el of itemEls) {
+        const key = el.id.replace('ir_', '');
+        if (el.type === 'checkbox') {
+          checklistData[key] = el.checked;
+        } else if (el.type === 'number') {
+          checklistData[key] = el.value ? parseFloat(el.value) : null;
+        } else {
+          checklistData[key] = el.value || '';
+        }
+      }
+
       try {
         await API.inspections.submitRecord({
-          plan_id: parseInt(plan_id),
+          plan_id,
           device_code,
           inspect_date,
-          appearance_ok: document.getElementById('irAppearanceOk')?.checked || false,
-          wall_distance: document.getElementById('irWallDistance')?.value || null,
-          ground_level: document.getElementById('irGroundLevel')?.value || null,
-          firmware_version: document.getElementById('irFirmware')?.value || '',
-          app_version: document.getElementById('irAppVersion')?.value || '',
-          run_hours: parseInt(document.getElementById('irRunHours')?.value) || 0,
-          ip_address: document.getElementById('irIpAddress')?.value || '',
-          network_stable: document.getElementById('irNetworkStable')?.checked || false,
-          packet_loss_rate: document.getElementById('irPacketLoss')?.value || null,
-          drug_inventory_ok: document.getElementById('irDrugInventoryOk')?.checked || false,
-          drug_low_stock_num: parseInt(document.getElementById('irLowStockNum')?.value) || 0,
-          drug_expiring_num: parseInt(document.getElementById('irExpiringNum')?.value) || 0,
-          screen_ok: document.getElementById('irScreenOk')?.checked || false,
-          scanner_ok: document.getElementById('irScannerOk')?.checked || false,
-          printer_ok: document.getElementById('irPrinterOk')?.checked || false,
-          lock_ok: document.getElementById('irLockOk')?.checked || false,
+          // 向后兼容：映射历史字段
+          appearance_ok: checklistData.appearance_ok !== undefined ? checklistData.appearance_ok : false,
+          wall_distance: checklistData.wall_distance || null,
+          ground_level: checklistData.ground_level || null,
+          firmware_version: checklistData.firmware_version || '',
+          app_version: checklistData.app_version || '',
+          run_hours: checklistData.run_hours !== undefined ? parseInt(checklistData.run_hours) || 0 : 0,
+          ip_address: checklistData.ip_address || '',
+          network_stable: checklistData.network_stable !== undefined ? checklistData.network_stable : false,
+          packet_loss_rate: checklistData.packet_loss_rate !== undefined ? parseFloat(checklistData.packet_loss_rate) || null : null,
+          drug_inventory_ok: checklistData.drug_inventory_ok !== undefined ? checklistData.drug_inventory_ok : false,
+          drug_low_stock_num: checklistData.drug_low_stock_num !== undefined ? parseInt(checklistData.drug_low_stock_num) || 0 : 0,
+          drug_expiring_num: checklistData.drug_expiring_num !== undefined ? parseInt(checklistData.drug_expiring_num) || 0 : 0,
+          screen_ok: checklistData.screen_ok !== undefined ? checklistData.screen_ok : false,
+          scanner_ok: checklistData.scanner_ok !== undefined ? checklistData.scanner_ok : false,
+          printer_ok: checklistData.printer_ok !== undefined ? checklistData.printer_ok : false,
+          lock_ok: checklistData.lock_ok !== undefined ? checklistData.lock_ok : false,
           result: document.getElementById('irResult')?.value || '正常',
-          note: document.getElementById('irNote')?.value || ''
+          note: document.getElementById('irNote')?.value || '',
+          checklist_data: JSON.stringify(checklistData)
         });
         Modal.hide();
         showToast('巡检记录已提交', 'success');
